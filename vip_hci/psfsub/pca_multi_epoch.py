@@ -49,6 +49,7 @@ class PCA_MULTI_EPOCH_Params(PCA_Params):
     source_xy
     """
     ncomp : list[int] = 1
+    delta_rot : Union[float, List]
     cube_delimiter : list[int] = None
     cube_ref_delimiter : list[int] = None
 
@@ -117,8 +118,13 @@ def pca_multi_epoch(*all_args: list, **all_kwargs: dict):
     
     Inherited, NotInherited = Inherited_Params(algo_params)
     
-    ToRemove = ['full_output', 'ncomp', 'cube', 'cube_ref', 'angle_list']
+    ToRemove = ['full_output', 'ncomp', 'cube', 'cube_ref', 'angle_list', 'delta_rot']
     Args_left = RemoveKeys(Inherited, ToRemove)
+    
+    if (type(algo_params.delta_rot) == float):
+        algo_params.delta_rot = np.full_like(np.array(algo_params.ncomp), algo_params.delta_rot, dtype = float)
+    elif (type(algo_params.delta_rot) == int):
+        algo_params.delta_rot = np.full_like(np.array(algo_params.ncomp), algo_params.delta_rot, dtype = float)
     
     NumberEpochs = len(algo_params.ncomp)
 
@@ -149,6 +155,7 @@ def pca_multi_epoch(*all_args: list, **all_kwargs: dict):
                 algo_params.angle_list[StartIndexCube:EndIndexCube],
                 cube_ref = algo_params.cube_ref[StartIndexCubeRef:EndIndexCubeRef,:,:],
                 ncomp = int(algo_params.ncomp[i]), full_output = True, 
+                delta_rot = algo_params.delta_rot[i],
                 **Args_left, **rot_options)
                 #**Params_PCA, **last_kwargs, **rot_options)
                 
@@ -175,6 +182,7 @@ def pca_multi_epoch(*all_args: list, **all_kwargs: dict):
                 algo_params.cube[StartIndex:EndIndex,:,:],
                 algo_params.angle_list[StartIndex:EndIndex],
                 ncomp = int(algo_params.ncomp[i]), full_output = True, 
+                delta_rot = algo_params.delta_rot[i],
                 **Args_left, **rot_options)
                 #**Params_PCA, **last_kwargs, **rot_options)
             

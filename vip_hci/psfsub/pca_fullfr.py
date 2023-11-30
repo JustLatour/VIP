@@ -340,6 +340,7 @@ def pca(*all_args: List, **all_kwargs: dict):
     if algo_params is None:
         algo_params = PCA_Params(*all_args, **class_params)
 
+
     # by default, interpolate masked area before derotation if a mask is used
     if algo_params.mask_center_px and len(rot_options) == 0:
         rot_options['mask_val'] = 0
