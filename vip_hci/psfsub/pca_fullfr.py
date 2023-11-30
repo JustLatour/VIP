@@ -581,6 +581,7 @@ def pca(*all_args: List, **all_kwargs: dict):
     elif algo_params.cube_ref is not None:
         add_params = {
             "start_time": start_time,
+            "full_output": True,
         }
         func_params = setup_parameters(
             params_obj=algo_params, fkt=_adi_rdi_pca, **add_params
@@ -589,7 +590,28 @@ def pca(*all_args: List, **all_kwargs: dict):
             **func_params,
             **rot_options,
         )
-        pcs, recon, residuals_cube, residuals_cube_, frame = res_pca
+        if algo_params.batch is None:
+            if algo_params.source_xy is not None:
+                # PCA grid, computing S/Ns
+                if isinstance(algo_params.ncomp, (tuple, list)):
+                    if algo_params.full_output:
+                        final_residuals_cube, frame, table, _ = res_pca
+                    else:
+                        # returning only the optimal residual
+                        final_residuals_cube = res_pca[1]
+                # full-frame PCA with rotation threshold
+                else:
+                    recon_cube, residuals_cube, residuals_cube_, frame = res_pca
+            else:
+                # PCA grid
+                if isinstance(algo_params.ncomp, (tuple, list)):
+                    final_residuals_cube, pclist = res_pca
+                # full-frame standard PCA
+                else:
+                    pcs, recon, residuals_cube, residuals_cube_, frame = res_pca
+        # full-frame incremental PCA
+        else:
+            frame, _, pcs, medians = res_pca
 
     # ADI. Shape of cube: (n_adi_frames, y, x)
     elif algo_params.cube_ref is None:
@@ -1348,6 +1370,9 @@ def _adi_rdi_pca(
     verbose,
     start_time,
     nproc,
+    full_output,
+    fwhm,
+    source_xy,
     weights=None,
     mask_rdi=None,
     cube_sig=None,
@@ -1357,65 +1382,90 @@ def _adi_rdi_pca(
     n, y, x = cube.shape
     n_ref, y_ref, x_ref = cube_ref.shape
     angle_list = check_pa_vector(angle_list)
-    if not isinstance(ncomp, int):
-        raise TypeError("`ncomp` must be an int in the ADI+RDI case")
-    if ncomp > n_ref:
-        msg = (
-            "Requested number of PCs ({}) higher than the number of frames "
-            + "in the reference cube ({}); using the latter instead."
-        )
-        print(msg.format(ncomp, n_ref))
-        ncomp = n_ref
-
-    if not cube_ref.ndim == 3:
-        msg = "Input reference array is not a cube or 3d array"
-        raise ValueError(msg)
-    if not y_ref == y and x_ref == x:
-        msg = "Reference and target frames have different shape"
+    if not isinstance(ncomp, (int, float, tuple, list)):
+        msg = "`ncomp` must be an int, float, tuple or list in the ADI+RDI case"
         raise TypeError(msg)
+        
+    
+    if np.isscalar(ncomp):
+        if ncomp > n_ref:
+            msg = (
+                "Requested number of PCs ({}) higher than the number of frames "
+                + "in the reference cube ({}); using the latter instead."
+                )
+            print(msg.format(ncomp, n_ref))
+            ncomp = n_ref
 
-    if mask_rdi is None:
-        residuals_result = _project_subtract(
-            cube,
-            cube_ref,
-            ncomp,
-            scaling,
-            mask_center_px,
-            svd_mode,
-            verbose,
-            True,
-            cube_sig=cube_sig,
-        )
-        residuals_cube = residuals_result[0]
-        reconstructed = residuals_result[1]
-        V = residuals_result[2]
-        pcs = reshape_matrix(V, y, x)
-        recon = reshape_matrix(reconstructed, y, x)
+        if mask_rdi is None:
+            residuals_result = _project_subtract(
+                cube,
+                cube_ref,
+                ncomp,
+                scaling,
+                mask_center_px,
+                svd_mode,
+                verbose,
+                True,
+                cube_sig=cube_sig,
+                )
+            residuals_cube = residuals_result[0]
+            reconstructed = residuals_result[1]
+            V = residuals_result[2]
+            pcs = reshape_matrix(V, y, x)
+            recon = reshape_matrix(reconstructed, y, x)
+        else:
+            residuals_result = cube_subtract_sky_pca(
+                cube, cube_ref, mask_rdi, ncomp=ncomp, full_output=True
+                )
+            residuals_cube = residuals_result[0]
+            pcs = residuals_result[2]
+            recon = residuals_result[-1]
+            
+        residuals_cube_ = cube_derotate(
+            residuals_cube,
+            angle_list,
+            nproc=nproc,
+            imlib=imlib,
+            interpolation=interpolation,
+            **rot_options,
+            )
+        frame = cube_collapse(residuals_cube_, mode=collapse, w=weights)
+        if mask_center_px:
+            frame = mask_circle(frame, mask_center_px)
+                
+        if verbose:
+            print("Done de-rotating and combining")
+            timing(start_time)
+                    
+        return pcs, recon, residuals_cube, residuals_cube_, frame
+    
+    # When ncomp is a tuple or a list, pca_grid is called
     else:
-        residuals_result = cube_subtract_sky_pca(
-            cube, cube_ref, mask_rdi, ncomp=ncomp, full_output=True
+        gridre = pca_grid(
+            cube,
+            angle_list,
+            fwhm,
+            range_pcs=ncomp,
+            source_xy=source_xy,
+            cube_ref=cube_ref,
+            mode="fullfr",
+            svd_mode=svd_mode,
+            scaling=scaling,
+            mask_center_px=mask_center_px,
+            fmerit="mean",
+            collapse=collapse,
+            verbose=verbose,
+            full_output=full_output,
+            debug=False,
+            plot=verbose,
+            start_time=start_time,
+            weights=weights,
+            nproc=nproc,
+            imlib=imlib,
+            interpolation=interpolation,
+            **rot_options,
         )
-        residuals_cube = residuals_result[0]
-        pcs = residuals_result[2]
-        recon = residuals_result[-1]
-
-    residuals_cube_ = cube_derotate(
-        residuals_cube,
-        angle_list,
-        nproc=nproc,
-        imlib=imlib,
-        interpolation=interpolation,
-        **rot_options,
-    )
-    frame = cube_collapse(residuals_cube_, mode=collapse, w=weights)
-    if mask_center_px:
-        frame = mask_circle(frame, mask_center_px)
-
-    if verbose:
-        print("Done de-rotating and combining")
-        timing(start_time)
-
-    return pcs, recon, residuals_cube, residuals_cube_, frame
+        return gridre
 
 
 def _project_subtract(

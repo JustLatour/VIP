@@ -56,7 +56,7 @@ class PCA_ANNULAR_Params:
     ncomp: Union[int, Tuple, np.ndarray, AUTO] = 1
     svd_mode: Enum = SvdMode.LAPACK
     nproc: int = 1
-    min_frames_lib: int = 2
+    min_frames_lib: int = 10
     max_frames_lib: int = 200
     tol: float = 1e-1
     scaling: Enum = None
@@ -756,7 +756,7 @@ def _pca_adi_rdi(
         return cube_out, cube_der, frame
     else:
         return frame
-
+    
 
 def do_pca_patch(
     matrix,
@@ -817,6 +817,7 @@ def do_pca_patch(
             data_ref = np.vstack((matrix_ref, data_ref))
         else:
             data_ref = matrix_ref
+
 
     curr_frame = matrix[frame]  # current frame
     if matrix_sig_segm is not None:
