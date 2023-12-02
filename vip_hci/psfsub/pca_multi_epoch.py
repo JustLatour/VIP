@@ -127,6 +127,8 @@ def pca_multi_epoch(*all_args: list, **all_kwargs: dict):
         algo_params.delta_rot = np.full_like(np.array(algo_params.ncomp), algo_params.delta_rot, dtype = float)
     elif (type(algo_params.delta_rot) == int):
         algo_params.delta_rot = np.full_like(np.array(algo_params.ncomp), algo_params.delta_rot, dtype = float)
+    elif algo_params.delta_rot == None:
+        algo_params.delta_rot = np.full(np.array(algo_params.ncomp).shape, algo_params.delta_rot, dtype = None)
     
     NumberEpochs = len(algo_params.ncomp)
 
@@ -238,6 +240,8 @@ def pca_annular_multi_epoch(*all_args: list, **all_kwargs: dict):
         algo_params.delta_rot = np.full_like(np.array(algo_params.ncomp), algo_params.delta_rot, dtype = float)
     elif (type(algo_params.delta_rot) == int):
         algo_params.delta_rot = np.full_like(np.array(algo_params.ncomp), algo_params.delta_rot, dtype = float)
+    elif algo_params.delta_rot == None:
+        algo_params.delta_rot = np.full(np.array(algo_params.ncomp).shape, algo_params.delta_rot, dtype = None)
     
     if (type(algo_params.ncomp) == tuple):
         raise TypeError(
@@ -268,7 +272,7 @@ def pca_annular_multi_epoch(*all_args: list, **all_kwargs: dict):
                 StartIndexCubeRef = algo_params.cube_ref_delimiter[i]
                 EndIndexCubeRef = algo_params.cube_ref_delimiter[i+1]
                 
-            _, _, residuals_cube_ = pca_annular(
+            _, residuals_cube_, _ = pca_annular(
                 algo_params.cube[StartIndexCube:EndIndexCube,:,:],
                 algo_params.angle_list[StartIndexCube:EndIndexCube],
                 cube_ref = algo_params.cube_ref[StartIndexCubeRef:EndIndexCubeRef,:,:],
@@ -292,7 +296,7 @@ def pca_annular_multi_epoch(*all_args: list, **all_kwargs: dict):
             StartIndex = algo_params.cube_delimiter[i]
             EndIndex = algo_params.cube_delimiter[i+1]
             
-            _, _, residuals_cube_ = pca_annular(
+            _, residuals_cube_, _ = pca_annular(
                 algo_params.cube[StartIndex:EndIndex,:,:],
                 algo_params.angle_list[StartIndex:EndIndex],
                 ncomp = int(algo_params.ncomp[i]), full_output = True, 
