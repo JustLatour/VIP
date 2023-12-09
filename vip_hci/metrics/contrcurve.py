@@ -24,6 +24,7 @@ from ..config import time_ini, timing
 from ..config.utils_conf import vip_figsize, vip_figdpi
 from ..var import frame_center, dist
 
+from hciplot import plot_frames, plot_cubes
 
 # TODO: Include algo_class modifications in any tutorial using this function
 def contrast_curve(
@@ -364,6 +365,8 @@ def contrast_curve(
         cont_curve_samp = (
             (sigma * noise_samp_sm + res_lev_samp_sm) / thruput_interp
         ) / np.median(starphot)
+        
+    
     cont_curve_samp[np.where(cont_curve_samp < 0)] = 1
     cont_curve_samp[np.where(cont_curve_samp > 1)] = 1
 
@@ -783,6 +786,7 @@ def throughput(
     else:
         noise_noscal = noise.copy()
 
+
     vector_radd = vector_radd[inner_rad - 1:]
     noise = noise[inner_rad - 1:]
     res_level = res_level[inner_rad - 1:]
@@ -1037,6 +1041,7 @@ def throughput(
                 recovered_flux = aperture_flux(
                     (frame_fc - frame_nofc), fcy, fcx, fwhm_med
                 )
+                
                 thruput = recovered_flux / injected_flux
                 thruput[np.where(thruput < 0)] = 0
 
