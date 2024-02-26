@@ -148,6 +148,7 @@ def contrast_optimized(
     
     NEpochs = len(ncomp)
     SizeEpoch = int(cube.shape[0]/NEpochs)
+    SizeEpochs = np.ones(NEpochs, dtype = int)
     CompPerE = np.ones(NEpochs, dtype = int)
     FullSize = int(0)
     NCombinations = int(1)
@@ -156,8 +157,10 @@ def contrast_optimized(
         CompPerE[i] = int(len(ncomp[i]))
         FullSize += int(CompPerE[i])
         NCombinations *= int(CompPerE[i])
-    Res_fc = np.zeros((FullSize, nbranch, SizeEpoch, SizeImage, SizeImage), dtype = float)
-    Res_no_fc = np.zeros((FullSize, SizeEpoch, SizeImage, SizeImage), dtype = float)
+        SizeEpochs[i] = cube_delimiter[i+1]-cube_delimiter[i]
+    DefaultSizeE = np.max(SizeEpochs)
+    Res_fc = np.zeros((FullSize, nbranch, DefaultSizeE, SizeImage, SizeImage), dtype = float)
+    Res_no_fc = np.zeros((FullSize, DefaultSizeE, SizeImage, SizeImage), dtype = float)
     frames_no_fc = np.zeros((NCombinations, SizeImage, SizeImage))
     noiseF = np.zeros((NCombinations))
     res_levelF = np.zeros((NCombinations))
@@ -234,8 +237,9 @@ def contrast_optimized(
                         delta_rot = algo_params.delta_rot[i],
                         **Args_left, **rot_options)
                     
-
-                    Res_no_fc[Index, :, :, :] = residuals_cube_
+                    CorrectDimRes = np.zeros((DefaultSizeE, SizeImage, SizeImage), dtype = float)
+                    CorrectDimRes[0:SizeEpochs[i], :, :] = residuals_cube_
+                    Res_no_fc[Index, :, :, :] = CorrectDimRes
                     Index += 1
         
         
@@ -252,7 +256,9 @@ def contrast_optimized(
                         delta_rot = algo_params.delta_rot[i],
                         **Args_left, **rot_options)
                     
-                    Res_no_fc[Index, :, :, :] = residuals_cube_
+                    CorrectDimRes = np.zeros((DefaultSizeE, SizeImage, SizeImage), dtype = float)
+                    CorrectDimRes[0:SizeEpochs[i], :, :] = residuals_cube_
+                    Res_no_fc[Index, :, :, :] = CorrectDimRes
                     Index += 1
                     
         
@@ -277,10 +283,11 @@ def contrast_optimized(
             Sum = 0
             for j in range(0, NEpochs, 1):
                 if j == 0:
-                    GlobalResiduals_no_fc = Res_no_fc[int(Indices[0])]
+                    GlobalResiduals_no_fc = Res_no_fc[int(Indices[0]), 0:SizeEpochs[j]]
                 else:
                     Sum += CompPerE[j-1]
-                    GlobalResiduals_no_fc = np.vstack((GlobalResiduals_no_fc, Res_no_fc[int(Sum+Indices[j])]))
+                    GlobalResiduals_no_fc = np.vstack((GlobalResiduals_no_fc, Res_no_fc[int(Sum+Indices[j]), 0:SizeEpochs[j]]))
+            
             
             frames_no_fc[i,:,:] = np.median(GlobalResiduals_no_fc, axis = 0)
             
@@ -389,8 +396,9 @@ def contrast_optimized(
                             delta_rot = algo_params.delta_rot[i],
                             **Args_left, **rot_options)
                         
-
-                        Res_fc[Index, br, :, :, :] = residuals_cube_
+                        CorrectDimRes = np.zeros((DefaultSizeE, SizeImage, SizeImage), dtype = float)
+                        CorrectDimRes[0:SizeEpochs[i], :, :] = residuals_cube_
+                        Res_fc[Index, br, :, :, :] = CorrectDimRes
                         Index += 1
             
             
@@ -407,7 +415,9 @@ def contrast_optimized(
                             delta_rot = algo_params.delta_rot[i],
                             **Args_left, **rot_options)
                         
-                        Res_fc[Index, br, :, :, :] = residuals_cube_
+                        CorrectDimRes = np.zeros((DefaultSizeE, SizeImage, SizeImage), dtype = float)
+                        CorrectDimRes[0:SizeEpochs[i], :, :] = residuals_cube_
+                        Res_fc[Index, br, :, :, :] = CorrectDimRes
                         Index += 1
                     
              
@@ -433,10 +443,10 @@ def contrast_optimized(
                 Sum = 0
                 for j in range(0, NEpochs, 1):
                     if j == 0:
-                        GlobalResiduals_fc = Res_fc[int(Indices[0]), br]
+                        GlobalResiduals_fc = Res_fc[int(Indices[0]), br, 0:SizeEpochs[j]]
                     else:
                         Sum += CompPerE[j-1]
-                        GlobalResiduals_fc = np.vstack((GlobalResiduals_fc, Res_fc[int(Sum+Indices[j]), br]))
+                        GlobalResiduals_fc = np.vstack((GlobalResiduals_fc, Res_fc[int(Sum+Indices[j]), br, 0:SizeEpochs[j]]))
                 
                 frame_fc = np.median(GlobalResiduals_fc, axis = 0)
                 
