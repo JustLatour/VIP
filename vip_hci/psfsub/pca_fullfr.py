@@ -472,6 +472,9 @@ def pca(*all_args: List, **all_kwargs: dict):
 
         # (ADI+)RDI
         if algo_params.cube_ref is not None:
+            final_residuals_cube = []
+            recon_cube = []
+            medians = []
             for ch in range(nch):
                 if algo_params.cube_ref[ch].ndim != 3:
                     msg = "Ref cube has wrong format for 4d input cube"
@@ -486,6 +489,8 @@ def pca(*all_args: List, **all_kwargs: dict):
                 func_params = setup_parameters(
                     params_obj=algo_params, fkt=_adi_rdi_pca, **add_params
                 )
+                if algo_params.verbose:
+                    print("Starting PCA on wavelength channel {}".format(ch))
                 res_pca = _adi_rdi_pca(
                     **func_params,
                     **rot_options,
@@ -495,6 +500,7 @@ def pca(*all_args: List, **all_kwargs: dict):
                 residuals_cube.append(res_pca[2])
                 residuals_cube_.append(res_pca[3])
                 ifs_adi_frames[ch] = res_pca[-1]
+            frame = cube_collapse(ifs_adi_frames, mode=algo_params.collapse_ifs)
         # ADI
         else:
             final_residuals_cube = []
