@@ -306,6 +306,8 @@ def pca_annular(*all_args: List, **all_kwargs: dict):
             func_params = setup_parameters(
                 params_obj=algo_params, fkt=_pca_adi_rdi, **add_params
             )
+            if algo_params.verbose:
+                print("Starting PCA on wavelength channel {}".format(ch))
             res_pca = _pca_adi_rdi(**func_params, **rot_options)
             cube_out.append(res_pca[0])
             cube_der.append(res_pca[1])
@@ -320,6 +322,94 @@ def pca_annular(*all_args: List, **all_kwargs: dict):
             return cube_out, cube_der, frame
         else:
             return frame
+        
+    #ADI + RDI + SDI data
+    elif (algo_params.cube.ndim == 4 and algo_params.scale_list is not None
+                                  and not isinstance(algo_params.ncomp, tuple)):
+        
+        nch, z, y, x = algo_params.cube.shape
+        algo_params.fwhm = int(np.round(np.mean(algo_params.fwhm)))
+        n_annuli = int((y / 2 - algo_params.radius_int) / algo_params.asize)
+        
+        if np.array(algo_params.scale_list).ndim > 1:
+            raise ValueError("Scaling factors vector is not 1d")
+        if not algo_params.scale_list.shape[0] == z:
+            raise ValueError("Scaling factors vector has wrong length")
+            
+        if isinstance(algo_params.ncomp, tuple):
+            raise TypeError(
+                "`ncomp` must be an integer or a list of integers in the ARSDI case"
+            )
+
+
+        if algo_params.verbose:
+            print("N annuli = {}, mean FWHM = {:.3f}".format(
+                    n_annuli, algo_params.fwhm))
+        
+        if not isinstance(algo_params.ncomp, list):
+            algo_params.ncomp = [algo_params.ncomp] * nch
+        elif len(algo_params.ncomp) != nch:
+            algo_params.ncomp = [algo_params.ncomp] * nch
+        if np.isscalar(algo_params.fwhm):
+            algo_params.fwhm = [algo_params.fwhm] * nch
+            
+        cube_out = []
+        cube_der = []
+        # ADI or RDI in each channel
+        for ch in range(nch):
+            resc_cube = scwave(
+                algo_params.cube[ch, :, :, :], algo_params.scale_list[ch]*z, 
+                imlib=algo_params.imlib, interpolation=algo_params.interpolation)[0]
+            
+            if algo_params.cube_ref is not None:
+                if algo_params.cube_ref[ch].ndim != 3:
+                    msg = "Ref cube has wrong format for 4d input cube"
+                    raise TypeError(msg)
+                nch_r, z_r, y_r, x_r = algo_params.cube.shape    
+                    
+                resc_cube_ref = scwave(
+                    algo_params.cube_ref[ch, :, :, :], algo_params.scale_list[ch]*z_r, 
+                    imlib=algo_params.imlib, interpolation=algo_params.interpolation)[0]
+            else:
+                cube_ref_tmp = algo_params.cube_ref
+
+            add_params = {
+                "cube": resc_cube,
+                "fwhm": algo_params.fwhm[ch],
+                "ncomp": algo_params.ncomp[ch],
+                "full_output": True,
+                "cube_ref": cube_ref_tmp,
+            }
+
+            func_params = setup_parameters(
+                params_obj=algo_params, fkt=_pca_adi_rdi, **add_params
+            )
+            """
+            Will need to define _pca_lambda_arsdi? 
+            use ARRAY in the end?... once per annulus, select sdi images, put in cube_ref
+            then use _pca_adi_rdi with that cube_ref...
+            """
+            if algo_params.verbose:
+                print("Starting PCA on wavelength channel {}".format(ch))
+            res_pca = _pca_adi_rdi(**func_params, **rot_options)
+            cube_out.append(res_pca[0])
+            cube_der.append(res_pca[1])
+            ifs_adi_frames[ch] = res_pca[-1]
+
+        frame = cube_collapse(ifs_adi_frames, mode=algo_params.collapse_ifs)
+
+        # convert to numpy arrays
+        cube_out = np.array(cube_out)
+        cube_der = np.array(cube_der)
+        """
+        if algo_params.full_output:
+            return cube_out, cube_der, frame
+        else:
+            return frame
+        """
+            
+        pass
+            
 
     # ADI+mSDI (IFS) datacubes
     elif algo_params.cube.ndim == 4:

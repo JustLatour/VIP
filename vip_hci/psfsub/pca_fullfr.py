@@ -58,7 +58,8 @@ from ..config.utils_param import setup_parameters, separate_kwargs_dict
 from ..preproc.derotation import _find_indices_adi, _compute_pa_thresh
 from ..preproc import cube_rescaling_wavelengths as scwave
 from ..preproc import (cube_derotate, cube_collapse, cube_subtract_sky_pca,
-                       check_pa_vector, check_scal_vector, cube_crop_frames)
+                       check_pa_vector, check_scal_vector, cube_crop_frames,
+                       cube_detect_badfr_correlation)
 from ..stats import descriptive_stats
 from ..var import (frame_center, dist, prepare_matrix, reshape_matrix,
                    cube_filter_lowpass, mask_circle)
@@ -414,10 +415,131 @@ def pca(*all_args: List, **all_kwargs: dict):
         residuals_cube_channels_,
         ifs_adi_frames,
     ) = (None for _ in range(6))
+    
+    
+    if (algo_params.scale_list is not None and algo_params.cube_ref is not None
+         and algo_params.adimsdi == Adimsdi.SINGLE):
+        
+        nch, nz, ny, nx = algo_params.cube.shape
+        
+        ifs_adi_frames = np.zeros([nch, ny, nx])
+        if not isinstance(algo_params.ncomp, list):
+            ncomp = [algo_params.ncomp] * nch
+        elif len(algo_params.ncomp) != nch:
+            nnpc = len(algo_params.ncomp)
+            ifs_adi_frames = np.zeros([nch, nnpc, ny, nx])
+            ncomp = [algo_params.ncomp] * nch
+        else:
+            ncomp = algo_params.ncomp
+        if np.isscalar(algo_params.fwhm):
+            algo_params.fwhm = [algo_params.fwhm] * nch
+            
+        pcs = []
+        recon = []
+        residuals_cube = []
+        residuals_cube_ = []
+        final_residuals_cube = []
+        recon_cube = []
+        medians = []
+        
+        for ch in range(nch):
+            if algo_params.cube_ref[ch].ndim != 3:
+                msg = "Ref cube has wrong format for 4d input cube"
+                raise TypeError(msg)
+                
+            nch_r, z_r, y_r, x_r = algo_params.cube.shape  
+            
+            #Rescaling the science and the reference cube of the channel
+            resc_cube = scwave(
+                algo_params.cube[ch, :, :, :], algo_params.scale_list[ch]*nz, 
+                imlib=algo_params.imlib, interpolation=algo_params.interpolation)[0]
+                    
+            resc_cube_ref_rdi = scwave(
+                algo_params.cube_ref[ch, :, :, :], algo_params.scale_list[ch]*z_r, 
+                imlib=algo_params.imlib, interpolation=algo_params.interpolation)[0]
+
+            #Building RDI library and provisional ADI library
+            if z_r < (nz -1):
+                #Build ADI library with one too many frames to reject one when
+                #its index is equal to the index of the frame considered
+                OneThird_Lib = z_r
+                ADI_cropped = True
+                RefFrame = np.median(resc_cube)
+                Percentile = 100*(nz - z_r - 1)/nz
+                Ind_ADI_Left = cube_detect_badfr_correlation(resc_cube, RefFrame, 
+                    verbose = False, crop_size = nx, percentile = Percentile, 
+                    plot = False)[0]
+                resc_cube_ref_adi = resc_cube[Ind_ADI_Left]
+            else:
+                OneThird_Lib = nz
+                ADI_cropped = False
+                RefFrame = np.median(resc_cube)
+                Percentile = 100*(z_r - nz)/z_r
+                Ind_RDI_Left = cube_detect_badfr_correlation(resc_cube_ref_rdi, 
+                                    RefFrame, verbose = False, crop_size = x_r, 
+                                    percentile = Percentile, plot = False)[0]
+                resc_cube_ref_rdi = resc_cube_ref_rdi[Ind_RDI_Left]
+                
+            #Building SDI library (assuming (nch-1)*nz > z_r)
+            #MAKE THIS A FREE PARAMETER???
+            SDI_channels = 5 #  = number of SDI channels checked to build sdi library
+            #Consider only the SDI channels farther away from ch
+            SDI_Distance = [[i, np.abs(algo_params.scale_list[ch]
+                                -algo_params.scale_list[i])] for i in range(0, nch)]
+            def keyf(p):
+                x, y = p
+                return (y, x)
+            Ind_Channels_Left = np.array(sorted(SDI_Distance, key = keyf, 
+                                            reverse = True)[0:SDI_channels])[:, 0]
+            print(Ind_Channels_Left)
+            #Rescale the channels left, then choose the most correlated frames
+            #either choose frames in all the ones left, or a bit in all channels?
+            #make the sdi_cube 3d for easy rescaling and picking frames
+            sdi_cube_left = np.concatenate(
+                tuple(algo_params.cube[i, :, :, :] for i in Ind_Channels_Left))
+            z_sdi = sdi_cube_left.shape[0]
+            rescaling_sdi_coeff = np.array([[
+                algo_params.scale_list[i]] * nz for i in Ind_Channels_Left]).flatten()
+            resc_cube_ref_sdi = scwave(sdi_cube_left, rescaling_sdi_coeff, 
+                imlib=algo_params.imlib, interpolation=algo_params.interpolation)[0]
+            #Choose the appropriate number of sdi images in the library
+            n_sdi = resc_cube_ref_sdi.shape[0]
+            Percentile_sdi = 100*(z_sdi - OneThird_Lib)/z_sdi
+            Ind_SDI_Left = cube_detect_badfr_correlation(resc_cube_ref_sdi, RefFrame, 
+                verbose = False, crop_size = nz, percentile = Percentile_sdi, 
+                plot = False)[0]
+            resc_cube_ref_sdi = resc_cube_ref_sdi[Ind_SDI_Left]
+                
+            add_params = {
+                "start_time": start_time,
+                "cube": resc_cube,
+                "fwhm": algo_params.fwhm[ch],
+                "ncomp": algo_params.ncomp[ch],
+                "full_output": True,
+                "cube_ref_rdi": resc_cube_ref_rdi,
+                "cube_ref_sdi": resc_cube_ref_sdi,
+                "indices": Ind_ADI_Left,
+            }
+            
+            func_params = setup_parameters(
+                params_obj=algo_params, fkt=_arsdi_pca, **add_params
+            )
+            
+            print(func_params, rot_options)
+            res_pca = _arsdi_pca(**func_params, **rot_options)
+            
+            pcs.append(res_pca[0])
+            recon.append(res_pca[1])
+            residuals_cube.append(res_pca[2])
+            residuals_cube_.append(res_pca[3])
+            ifs_adi_frames[ch] = res_pca[-1]
+                    
+        frame = cube_collapse(ifs_adi_frames, mode=algo_params.collapse_ifs)
+        
 
     # ADI + mSDI. Shape of cube: (n_channels, n_adi_frames, y, x)
     # isinstance(cube, np.ndarray) and cube.ndim == 4:
-    if algo_params.scale_list is not None:
+    elif algo_params.scale_list is not None:
         if algo_params.adimsdi == Adimsdi.DOUBLE:
             add_params = {"start_time": start_time}
             func_params = setup_parameters(
@@ -937,6 +1059,150 @@ def _adi_pca(
                 **rot_options,
             )
             return gridre
+        
+
+def _arsdi_pca(
+    cube,
+    cube_ref_rdi,
+    cube_ref_sdi,
+    indices,
+    angle_list,
+    ncomp,
+    source_xy,
+    fwhm,
+    scaling,
+    mask_center_px,
+    svd_mode,
+    imlib,
+    interpolation,
+    collapse,
+    verbose,
+    start_time,
+    nproc,
+    full_output,
+    weights=None,
+    mask_rdi=None,
+    cube_sig=None,
+    left_eigv=False,
+    **rot_options,
+):
+    z, y, x = cube.shape[0]
+    (
+        frame,
+        pcs,
+        recon_cube,
+        residuals_cube,
+        residuals_cube_,
+    ) = (None for _ in range(5))
+    
+    angle_list = check_pa_vector(angle_list)
+    if not angle_list.shape[0] == z:
+        msg = "Angle list vector has wrong length. It must equal the number"
+        msg += " frames in the cube"
+        raise ValueError(msg)
+        
+    if np.isscalar(ncomp):
+        if isinstance(ncomp, int) and ncomp > z:
+            ncomp = min(ncomp, z)
+            print(
+                "Number of PCs too high (max PCs={}), using {} PCs "
+                "instead.".format(z, ncomp)
+            )
+        
+        residuals_cube = np.zeros_like(cube)
+        recon_cube = np.zeros_like(cube)
+        
+        for frame in range(z):
+            if frame in indices:
+                indices = indices[indices != frame]
+            else:
+                indices = indices[1:]
+                cube_ref_adi = cube[indices]
+                cube_ref_arsdi = np.concatenate((cube_ref_adi,
+                                                 cube_ref_rdi,
+                                                 cube_ref_sdi))
+                
+            print(cube_ref_adi.shape, cube_ref_rdi.shape, cube_ref_sdi.shape)
+            res_result = _project_subtract(
+                cube,
+                cube_ref_arsdi,
+                ncomp,
+                scaling,
+                mask_center_px,
+                svd_mode,
+                verbose,
+                full_output,
+                None,
+                frame,
+                cube_sig=cube_sig,
+                left_eigv=left_eigv,
+            )   
+        
+            if full_output:
+                residual_frame = res_result[0]
+                recon_frame = res_result[1]
+                residuals_cube[frame] = residual_frame.reshape((y, x))
+                recon_cube[frame] = recon_frame.reshape((y, x))
+            else:
+                residual_frame = res_result[0]
+                residuals_cube[frame] = residual_frame.reshape((y, x))
+            
+            residuals_cube_ = cube_derotate(
+                residuals_cube,
+                angle_list,
+                nproc=nproc,
+                imlib=imlib,
+                interpolation=interpolation,
+                **rot_options,
+            )
+            if mask_center_px:
+                residuals_cube_ = mask_circle(residuals_cube_, mask_center_px)
+            frame = cube_collapse(residuals_cube_, mode=collapse, w=weights)
+        
+        if verbose:
+            print("Done de-rotating and combining")
+            timing(start_time)
+        
+        if full_output:
+            return (pcs,
+                    recon_cube,
+                    residuals_cube,
+                    residuals_cube_,
+                    frame)
+        else:
+            return frame
+        
+    else:
+        cube_ref_adi = cube[indices]
+        cube_ref_arsdi = np.concatenate((cube_ref_adi,
+                                         cube_ref_rdi,
+                                         cube_ref_sdi))
+        gridre = pca_grid(
+            cube,
+            angle_list,
+            fwhm,
+            range_pcs=ncomp,
+            source_xy=source_xy,
+            cube_ref=cube_ref_arsdi,
+            mode="fullfr",
+            svd_mode=svd_mode,
+            scaling=scaling,
+            mask_center_px=mask_center_px,
+            fmerit="mean",
+            collapse=collapse,
+            verbose=verbose,
+            full_output=full_output,
+            debug=False,
+            plot=verbose,
+            start_time=start_time,
+            weights=weights,
+            nproc=nproc,
+            imlib=imlib,
+            interpolation=interpolation,
+            **rot_options,
+        )
+        return gridre
+    pass
 
 
 def _adimsdi_singlepca(
