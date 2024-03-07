@@ -442,6 +442,22 @@ def pca(*all_args: List, **all_kwargs: dict):
         recon_cube = []
         medians = []
         
+        #Rescaling of science cube (by making it 3d first)
+        big_cube = []
+        
+        Max_sc = np.max(algo_params.scale_list)
+        for i in Progressbar(range(nch), verbose=algo_params.verbose):
+            buff_frame = np.zeros((1, nx, ny))
+            Scale_list_buffer = np.array([algo_params.scale_list[int(i)]] * nz + [Max_sc])
+            cube_resc = scwave(np.concatenate((algo_params.cube[i, :, :, :], buff_frame)), 
+                    Scale_list_buffer, imlib= algo_params.imlib2,
+                    interpolation=algo_params.interpolation)[0]
+            big_cube.append(cube_resc[0:nz, :, :])
+        
+        big_cube = np.array(big_cube)
+        #big_cube.reshape((nch * nz, big_cube.shape[2], big_cube.shape[2]))
+        print(big_cube.shape)
+        
         for ch in range(nch):
             if algo_params.cube_ref[ch].ndim != 3:
                 msg = "Ref cube has wrong format for 4d input cube"
@@ -453,15 +469,18 @@ def pca(*all_args: List, **all_kwargs: dict):
             nch_r, z_r, y_r, x_r = algo_params.cube_ref.shape  
             
             #Rescaling the science and the reference cube of the channel
-            resc_cube = scwave(
-                algo_params.cube[ch, :, :, :], [algo_params.scale_list[ch]]*nz, 
-                imlib=algo_params.imlib, interpolation=algo_params.interpolation)[0]
+            
+            #resc_cube = scwave(
+            #    algo_params.cube[ch, :, :, :], [algo_params.scale_list[ch]]*nz, 
+            #    imlib=algo_params.imlib, interpolation=algo_params.interpolation)[0]
+            
+            resc_cube = big_cube[ch, :, :, :]
                     
             resc_cube_ref_rdi = scwave(
                 algo_params.cube_ref[ch, :, :, :], [algo_params.scale_list[ch]]*z_r, 
                 imlib=algo_params.imlib, interpolation=algo_params.interpolation)[0]
             
-            crop_size = int(np.min((resc_cube.shape[2], resc_cube_ref_rdi.shape[2]))/2)
+            crop_size = int(np.min((resc_cube.shape[2], resc_cube_ref_rdi.shape[2]))/4)
 
             #Building RDI library and provisional ADI library
             if z_r < (nz -1):
@@ -501,17 +520,17 @@ def pca(*all_args: List, **all_kwargs: dict):
             #Rescale the channels left, then choose the most correlated frames
             #either choose frames in all the ones left, or a bit in all channels?
             #make the sdi_cube 3d for easy rescaling and picking frames
-            sdi_cube_left = np.concatenate(
-                tuple(algo_params.cube[int(i), :, :, :] for i in Ind_Channels_Left))
-            z_sdi = sdi_cube_left.shape[0]
-            rescaling_sdi_coeff = np.array([[
-                algo_params.scale_list[int(i)]] * nz for i in Ind_Channels_Left]).flatten()
-            resc_cube_ref_sdi = scwave(sdi_cube_left, rescaling_sdi_coeff, 
-                imlib=algo_params.imlib, interpolation=algo_params.interpolation)[0]
+            resc_cube_ref_sdi = np.concatenate(tuple(big_cube[int(i), :, :, :] 
+                                                     for i in Ind_Channels_Left))
+            z_sdi = resc_cube_ref_sdi.shape[0]
+            
+            #rescaling_sdi_coeff = np.array([[
+            #    algo_params.scale_list[int(i)]] * nz for i in Ind_Channels_Left]).flatten()
+            #resc_cube_ref_sdi = scwave(sdi_cube_left, rescaling_sdi_coeff, 
+            #    imlib=algo_params.imlib, interpolation=algo_params.interpolation)[0]
             #Choose the appropriate number of sdi images in the library
-            n_sdi = resc_cube_ref_sdi.shape[0]
             Percentile_sdi = 100*(z_sdi - OneThird_Lib)/z_sdi
-            crop_size2 = int(np.min((crop_size, resc_cube_ref_sdi.shape[2]))/2)
+            crop_size2 = int(np.min((crop_size, resc_cube_ref_sdi.shape[2]))/4)
             Ind_SDI_Left = cube_detect_badfr_correlation(resc_cube_ref_sdi, RefFrame, 
                 verbose = False, crop_size = crop_size2, percentile = Percentile_sdi, 
                 plot = False)[0]
@@ -1140,6 +1159,9 @@ def _arsdi_pca(
                 
             cube_ref_adi = cube[indices_used]
             
+            print(cube_ref_adi.shape)
+            print(cube_ref_rdi.shape)
+            print(cube_ref_sdi.shape)
             cube_ref_arsdi = np.concatenate((cube_ref_adi,
                                              cube_ref_rdi,
                                              cube_ref_sdi))
