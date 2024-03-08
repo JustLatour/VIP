@@ -450,13 +450,11 @@ def pca(*all_args: List, **all_kwargs: dict):
             buff_frame = np.zeros((1, nx, ny))
             Scale_list_buffer = np.array([algo_params.scale_list[int(i)]] * nz + [Max_sc])
             cube_resc = scwave(np.concatenate((algo_params.cube[i, :, :, :], buff_frame)), 
-                    Scale_list_buffer, imlib= algo_params.imlib2,
+                    Scale_list_buffer, imlib = algo_params.imlib2,
                     interpolation=algo_params.interpolation)[0]
             big_cube.append(cube_resc[0:nz, :, :])
         
         big_cube = np.array(big_cube)
-        #big_cube.reshape((nch * nz, big_cube.shape[2], big_cube.shape[2]))
-        print(big_cube.shape)
         
         for ch in range(nch):
             if algo_params.cube_ref[ch].ndim != 3:
@@ -466,19 +464,13 @@ def pca(*all_args: List, **all_kwargs: dict):
             if algo_params.verbose:
                 print("Starting processing wavelength channel  {}".format(ch))
                 
-            nch_r, z_r, y_r, x_r = algo_params.cube_ref.shape  
-            
-            #Rescaling the science and the reference cube of the channel
-            
-            #resc_cube = scwave(
-            #    algo_params.cube[ch, :, :, :], [algo_params.scale_list[ch]]*nz, 
-            #    imlib=algo_params.imlib, interpolation=algo_params.interpolation)[0]
-            
             resc_cube = big_cube[ch, :, :, :]
+                
+            nch_r, z_r, y_r, x_r = algo_params.cube_ref.shape  
                     
             resc_cube_ref_rdi = scwave(
                 algo_params.cube_ref[ch, :, :, :], [algo_params.scale_list[ch]]*z_r, 
-                imlib=algo_params.imlib, interpolation=algo_params.interpolation)[0]
+                imlib=algo_params.imlib2, interpolation=algo_params.interpolation)[0]
             
             crop_size = int(np.min((resc_cube.shape[2], resc_cube_ref_rdi.shape[2]))/4)
 
@@ -548,10 +540,6 @@ def pca(*all_args: List, **all_kwargs: dict):
                                                      for i in Ind_Channels_Left))
             z_sdi = resc_cube_ref_sdi.shape[0]
             
-            #rescaling_sdi_coeff = np.array([[
-            #    algo_params.scale_list[int(i)]] * nz for i in Ind_Channels_Left]).flatten()
-            #resc_cube_ref_sdi = scwave(sdi_cube_left, rescaling_sdi_coeff, 
-            #    imlib=algo_params.imlib, interpolation=algo_params.interpolation)[0]
             #Choose the appropriate number of sdi images in the library
             Percentile_sdi = 100*(z_sdi - OneThird_Lib)/z_sdi
             crop_size2 = int(np.min((crop_size, resc_cube_ref_sdi.shape[2]))/4)
@@ -592,13 +580,38 @@ def pca(*all_args: List, **all_kwargs: dict):
             
             res_pca = _arsdi_pca(**func_params, **rot_options)
             
-            pcs.append(res_pca[0])
-            recon.append(res_pca[1])
-            residuals_cube.append(res_pca[2])
-            residuals_cube_.append(res_pca[3])
-            ifs_adi_frames[ch] = res_pca[-1]
+            if not isinstance(algo_params.ncomp, list):
+                pcs.append(res_pca[0])
+                recon.append(res_pca[1])
+                residuals_cube.append(res_pca[2])
+                residuals_cube_.append(res_pca[3])
+                ifs_adi_frames[ch] = res_pca[-1]
+            elif len(algo_params.ncomp) != nch:
+                res = np.array(res_pca[0])
+                res = scwave(res, np.array([algo_params.scale_list[ch]] * nnpc), 
+                        inverse = True, imlib = algo_params.imlib2, 
+                        interpolation = algo_params.interpolation, 
+                        x_in = nx, y_in = ny)[0]
+                if algo_params.mask_center_px:
+                    res = mask_circle(res, algo_params.mask_center_px)
+                ifs_adi_frames[ch,: ,: ,:] = res
+                if algo_params.full_output:
+                    pclist = res_pca[1]
+            else:
+                pcs.append(res_pca[0])
+                recon.append(res_pca[1])
+                residuals_cube.append(res_pca[2])
+                residuals_cube_.append(res_pca[3])
+                ifs_adi_frames[ch] = res_pca[-1]
                     
-        frame = cube_collapse(ifs_adi_frames, mode=algo_params.collapse_ifs)
+        if not isinstance(algo_params.ncomp, list):
+            frame = cube_collapse(ifs_adi_frames, mode=algo_params.collapse_ifs)
+        elif len(algo_params.ncomp) != nch:
+            final_residuals_cube = [cube_collapse(ifs_adi_frames[:, i ,: ,:], 
+                mode=algo_params.collapse_ifs) for i in range(0, len(algo_params.ncomp))]
+        else:
+            frame = cube_collapse(ifs_adi_frames, mode=algo_params.collapse_ifs)
+            
         
 
     # ADI + mSDI. Shape of cube: (n_channels, n_adi_frames, y, x)
@@ -1137,6 +1150,7 @@ def _arsdi_pca(
     mask_center_px,
     svd_mode,
     imlib,
+    imlib2,
     interpolation,
     collapse,
     verbose,
@@ -1176,6 +1190,7 @@ def _arsdi_pca(
         residuals_cube = np.zeros_like(cube)
         recon_cube = np.zeros_like(cube)
         
+        mask_center_px *= scale_factor
         res = _project_subtract(
             cube,
             cube_ref_arsdi,
@@ -1237,8 +1252,11 @@ def _arsdi_pca(
             recon_cube = res[1]
             
         residuals_cube = scwave(residuals_cube, np.array([scale_factor] * z), 
-                inverse = True, imlib = imlib, interpolation = interpolation,
+                inverse = True, imlib = imlib2, interpolation = interpolation,
                 x_in = xy_in, y_in = xy_in)[0]
+        
+        if mask_center_px:
+            residuals_cube = mask_circle(residuals_cube, mask_center_px)
             
         residuals_cube_ = cube_derotate(
             residuals_cube,
@@ -1249,8 +1267,6 @@ def _arsdi_pca(
             **rot_options,
         )
         
-        if mask_center_px:
-            residuals_cube_ = mask_circle(residuals_cube_, mask_center_px)
         frame = cube_collapse(residuals_cube_, mode=collapse, w=weights)
         
         if verbose:
@@ -1267,6 +1283,7 @@ def _arsdi_pca(
             return frame
         
     else:
+        mask_center_px *= scale_factor
         gridre = pca_grid(
             cube,
             angle_list,
@@ -1291,8 +1308,9 @@ def _arsdi_pca(
             interpolation=interpolation,
             **rot_options,
         )
+        
         return gridre
-
+    
 
 def _adimsdi_singlepca(
     cube,
