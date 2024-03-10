@@ -27,10 +27,10 @@ from ..var import (frame_center, dist, prepare_matrix, reshape_matrix,
                    cube_filter_lowpass, mask_circle)
 
 
-from .pca_fullfr import *
-from .pca_fullfr import PCA_Params
-from .pca_local import *
-from .pca_local import PCA_ANNULAR_Params
+#from .pca_fullfr import *
+from .pca_fullfr import PCA_Params, pca
+#from .pca_local import *
+from .pca_local import PCA_ANNULAR_Params, pca_annular
 
 
 @dataclass
@@ -120,7 +120,8 @@ def pca_multi_epoch(*all_args: list, **all_kwargs: dict):
     
     Inherited, NotInherited = Inherited_Params(algo_params)
     
-    ToRemove = ['full_output', 'ncomp', 'cube', 'cube_ref', 'angle_list', 'delta_rot']
+    ToRemove = ['full_output', 'ncomp', 'cube', 'cube_ref', 'angle_list', 
+                'delta_rot', 'weights', 'collapse']
     Args_left = RemoveKeys(Inherited, ToRemove)
     
     if (type(algo_params.delta_rot) == float):
@@ -170,8 +171,8 @@ def pca_multi_epoch(*all_args: list, **all_kwargs: dict):
             
             #print(GlobalResiduals.shape)
                 
-            
-        FinalFrame = np.median(GlobalResiduals, axis = 0)
+        FinalFrame = cube_collapse(GlobalResiduals, mode=algo_params.collapse, 
+                                   w=algo_params.weights)
         #return FinalFrame
     
     
@@ -195,7 +196,8 @@ def pca_multi_epoch(*all_args: list, **all_kwargs: dict):
             else:
                 GlobalResiduals = np.vstack((GlobalResiduals, residuals_cube_))
         
-        FinalFrame = np.median(GlobalResiduals, axis = 0)
+        FinalFrame = cube_collapse(GlobalResiduals, mode=algo_params.collapse, 
+                                   w=algo_params.weights)
         #return FinalFrame
     
     if algo_params.full_output:
@@ -233,8 +235,10 @@ def pca_annular_multi_epoch(*all_args: list, **all_kwargs: dict):
     
     Inherited, NotInherited = Inherited_Params(algo_params)
     
-    ToRemove = ['full_output', 'ncomp', 'cube', 'cube_ref', 'angle_list', 'delta_rot']
+    ToRemove = ['full_output', 'ncomp', 'cube', 'cube_ref', 'angle_list', 
+                'delta_rot', 'weights', 'collapse']
     Args_left = RemoveKeys(Inherited, ToRemove)
+    
     
     if (type(algo_params.delta_rot) == float):
         algo_params.delta_rot = np.full_like(np.array(algo_params.ncomp), algo_params.delta_rot, dtype = float)
@@ -286,7 +290,8 @@ def pca_annular_multi_epoch(*all_args: list, **all_kwargs: dict):
                 GlobalResiduals = np.vstack((GlobalResiduals, residuals_cube_))
                 
                 
-        FinalFrame = np.median(GlobalResiduals, axis = 0)
+        FinalFrame = cube_collapse(GlobalResiduals, mode=algo_params.collapse, 
+                                   w=algo_params.weights)
     
     
     #ADI case
@@ -308,7 +313,8 @@ def pca_annular_multi_epoch(*all_args: list, **all_kwargs: dict):
             else:
                 GlobalResiduals = np.vstack((GlobalResiduals, residuals_cube_))
         
-        FinalFrame = np.median(GlobalResiduals, axis = 0)
+        FinalFrame = cube_collapse(GlobalResiduals, mode=algo_params.collapse, 
+                                   w=algo_params.weights)
     
     if algo_params.full_output:
         return FinalFrame, GlobalResiduals
