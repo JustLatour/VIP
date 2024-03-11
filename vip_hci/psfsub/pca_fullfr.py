@@ -85,6 +85,8 @@ class PCA_Params:
     delta_rot: int = None
     fwhm: float = 4
     adimsdi: Enum = Adimsdi.SINGLE
+    SDI_channels: int = 5
+    Ref_Lib_Numbers: Union[list, tuple[int]] = None
     crop_ifs: bool = True
     imlib: Enum = Imlib.VIPFFT
     imlib2: Enum = Imlib.VIPFFT
@@ -463,68 +465,69 @@ def pca(*all_args: List, **all_kwargs: dict):
                 
             if algo_params.verbose:
                 print("Starting processing wavelength channel  {}".format(ch))
-                
-            resc_cube = big_cube[ch, :, :, :]
-                
-            nch_r, z_r, y_r, x_r = algo_params.cube_ref.shape  
-                    
+            
+            nch_r, z_r, y_r, x_r = algo_params.cube_ref.shape
             resc_cube_ref_rdi = scwave(
                 algo_params.cube_ref[ch, :, :, :], [algo_params.scale_list[ch]]*z_r, 
                 imlib=algo_params.imlib2, interpolation=algo_params.interpolation)[0]
             
-            crop_size = int(np.min((resc_cube.shape[2], resc_cube_ref_rdi.shape[2]))/4)
-
-            #Building RDI library and provisional ADI library
-            """
-            if z_r < (nz -1):
-                #Build ADI library with one too many frames to reject one when
-                #its index is equal to the index of the frame considered
-                OneThird_Lib = z_r
-                ADI_cropped = True
-                RefFrame = np.median(resc_cube, axis = 0)
-                #Want z_r + 1 frames left
-                Percentile = 100*(nz - z_r - 1)/nz
-                Ind_ADI_Left = cube_detect_badfr_correlation(resc_cube, RefFrame, 
-                    verbose = False, crop_size = crop_size, percentile = Percentile, 
-                    plot = False)[0]
-            else:
-                OneThird_Lib = nz -1
-                ADI_cropped = False
-                RefFrame = np.median(resc_cube, axis = 0)
-                #Want nz - 1 frames left
-                Percentile = 100*(z_r - nz + 1)/z_r
-                Ind_RDI_Left = cube_detect_badfr_correlation(resc_cube_ref_rdi, 
-                                    RefFrame, verbose = False, crop_size = crop_size, 
-                                    percentile = Percentile, plot = False)[0]
-                resc_cube_ref_rdi = resc_cube_ref_rdi[Ind_RDI_Left]
-                Ind_ADI_Left = np.arange(0, nz, 1)
-            """
-            if z_r < nz:
-                #Build ADI library
-                OneThird_Lib = z_r
-                ADI_cropped = True
-                RefFrame = np.median(resc_cube, axis = 0)
-                #Want z_r frames left
-                Percentile = 100*(nz - z_r)/nz
-                Ind_ADI_Left = cube_detect_badfr_correlation(resc_cube, RefFrame, 
-                    verbose = False, crop_size = crop_size, percentile = Percentile, 
-                    plot = False)[0]
-                resc_cube_ref_adi = resc_cube[Ind_ADI_Left]
-            else:
-                OneThird_Lib = nz
-                ADI_cropped = False
-                RefFrame = np.median(resc_cube, axis = 0)
-                #Want nz frames left
-                Percentile = 100*(z_r - nz)/z_r
-                Ind_RDI_Left = cube_detect_badfr_correlation(resc_cube_ref_rdi, 
-                                    RefFrame, verbose = False, crop_size = crop_size, 
-                                    percentile = Percentile, plot = False)[0]
-                resc_cube_ref_rdi = resc_cube_ref_rdi[Ind_RDI_Left]
-                resc_cube_ref_adi = resc_cube
+            resc_cube = big_cube[ch, :, :, :]
                 
-            #Building SDI library (assuming (nch-1)*nz > z_r)
-            #MAKE THIS A FREE PARAMETER???
-            SDI_channels = 5 #  = number of SDI channels checked to build sdi library
+            Crop = int(np.min((big_cube.shape[1], resc_cube_ref_rdi.shape[1])))
+            if resc_cube.shape[1] > Crop:
+                resc_cube = cube_crop_frames(resc_cube, Crop, verbose = False)
+            if resc_cube_ref_rdi.shape[1] > Crop:
+                resc_cube_ref_rdi = cube_crop_frames(resc_cube_ref_rdi, Crop, 
+                                                              verbose = False)
+            
+            crop_size = int(resc_cube.shape[2]/4)
+
+            RefFrame = np.median(resc_cube, axis = 0)
+            if algo_params.Ref_Lib_Numbers == None:
+                if z_r < nz:
+                    #Build ADI library
+                    n_adi = z_r
+                    n_rdi = z_r
+                    n_sdi = z_r
+                    #Want z_r frames left
+                    Percentile = 100*(nz - z_r)/nz
+                    Ind_ADI_Left = cube_detect_badfr_correlation(resc_cube, 
+                        RefFrame, verbose = False, crop_size = crop_size, 
+                        percentile = Percentile, plot = False)[0]
+                    resc_cube_ref_adi = resc_cube[Ind_ADI_Left]
+                else:
+                    n_adi = nz
+                    n_rdi = nz
+                    n_sdi = nz
+                    #Want nz frames left
+                    Percentile = 100*(z_r - nz)/z_r
+                    Ind_RDI_Left = cube_detect_badfr_correlation(resc_cube_ref_rdi, 
+                                    RefFrame, verbose = False, crop_size = crop_size, 
+                                    percentile = Percentile, plot = False)[0]
+                    resc_cube_ref_rdi = resc_cube_ref_rdi[Ind_RDI_Left]
+                    resc_cube_ref_adi = resc_cube
+            else:
+                n_adi = algo_params.Ref_Lib_Numbers[0]
+                n_rdi = algo_params.Ref_Lib_Numbers[1]
+                n_sdi = algo_params.Ref_Lib_Numbers[2]
+                Percentile_adi = Percentile = 100*(nz - n_adi)/nz
+                Percentile_rdi = 100*(z_r - n_rdi)/z_r
+                if n_adi == nz:
+                    resc_cube_ref_adi = resc_cube
+                else:
+                    Ind_ADI_Left = cube_detect_badfr_correlation(resc_cube, 
+                            RefFrame, verbose = False, crop_size = crop_size, 
+                            percentile = Percentile_adi, plot = False)[0]
+                    resc_cube_ref_adi = resc_cube[Ind_ADI_Left]
+                if n_rdi == z_r:
+                    pass
+                else:
+                    Ind_RDI_Left = cube_detect_badfr_correlation(resc_cube_ref_rdi, 
+                            RefFrame, verbose = False, crop_size = crop_size, 
+                            percentile = Percentile_rdi, plot = False)[0]
+                    resc_cube_ref_rdi = resc_cube_ref_rdi[Ind_RDI_Left]
+                
+            #Building SDI library
             #Consider only the SDI channels farther away from ch
             SDI_Distance = [[i, np.abs(algo_params.scale_list[ch]
                                 -algo_params.scale_list[i])] for i in range(0, nch)]
@@ -532,36 +535,28 @@ def pca(*all_args: List, **all_kwargs: dict):
                 x, y = p
                 return (y, x)
             Ind_Channels_Left = np.array(sorted(SDI_Distance, key = keyf, 
-                                            reverse = True)[0:SDI_channels])[:, 0]
+                            reverse = True)[0:algo_params.SDI_channels])[:, 0]
             #Rescale the channels left, then choose the most correlated frames
             #either choose frames in all the ones left, or a bit in all channels?
             #make the sdi_cube 3d for easy rescaling and picking frames
             resc_cube_ref_sdi = np.concatenate(tuple(big_cube[int(i), :, :, :] 
                                                      for i in Ind_Channels_Left))
+            if resc_cube_ref_sdi.shape[1] > Crop:
+                resc_cube_ref_sdi = cube_crop_frames(resc_cube_ref_sdi, Crop)
             z_sdi = resc_cube_ref_sdi.shape[0]
             
             #Choose the appropriate number of sdi images in the library
-            Percentile_sdi = 100*(z_sdi - OneThird_Lib)/z_sdi
+            Percentile_sdi = 100*(z_sdi - n_sdi)/z_sdi
             crop_size2 = int(np.min((crop_size, resc_cube_ref_sdi.shape[2]))/4)
             Ind_SDI_Left = cube_detect_badfr_correlation(resc_cube_ref_sdi, RefFrame, 
                 verbose = False, crop_size = crop_size2, percentile = Percentile_sdi, 
                 plot = False)[0]
             resc_cube_ref_sdi = resc_cube_ref_sdi[Ind_SDI_Left]
             
-            Crop = int(np.min((resc_cube_ref_adi.shape[1], 
-                               resc_cube_ref_rdi.shape[1], 
-                               resc_cube_ref_sdi.shape[1])))
-            if resc_cube.shape[1] > Crop:
-                resc_cube = cube_crop_frames(resc_cube, Crop)
-            if resc_cube_ref_adi.shape[1] > Crop:
-                resc_cube_ref_adi = cube_crop_frames(resc_cube_ref_adi, Crop)
-            if resc_cube_ref_rdi.shape[1] > Crop:
-                resc_cube_ref_rdi = cube_crop_frames(resc_cube_ref_rdi, Crop)
-            if resc_cube_ref_sdi.shape[1] > Crop:
-                resc_cube_ref_sdi = cube_crop_frames(resc_cube_ref_sdi, Crop)
+
             resc_cube_ref_arsdi = np.concatenate((resc_cube_ref_adi,
-                                              resc_cube_ref_rdi,
-                                              resc_cube_ref_sdi))
+                                            resc_cube_ref_rdi,
+                                            resc_cube_ref_sdi))
                 
             add_params = {
                 "start_time": start_time,
@@ -1190,13 +1185,13 @@ def _arsdi_pca(
         residuals_cube = np.zeros_like(cube)
         recon_cube = np.zeros_like(cube)
         
-        mask_center_px *= scale_factor
+        mask_center_px_sc = mask_center_px * scale_factor
         res = _project_subtract(
             cube,
             cube_ref_arsdi,
             ncomp,
             scaling,
-            mask_center_px,
+            mask_center_px_sc,
             svd_mode,
             verbose,
             full_output,
@@ -1206,47 +1201,6 @@ def _arsdi_pca(
             left_eigv=left_eigv,
         ) 
         
-        """
-        for frame in range(z):
-            if frame in indices:
-                indices_used = indices[indices != frame]
-            else:
-                indices_used = indices[1:]
-                
-            cube_ref_adi = cube[indices_used]
-            
-            print(cube_ref_adi.shape)
-            print(cube_ref_rdi.shape)
-            print(cube_ref_sdi.shape)
-            cube_ref_arsdi = np.concatenate((cube_ref_adi,
-                                             cube_ref_rdi,
-                                             cube_ref_sdi))
-                
-            indices_sub = np.arange(0, cube_ref_arsdi.shape[0],1)
-            res_result = _project_subtract(
-                cube,
-                cube_ref_arsdi,
-                ncomp,
-                scaling,
-                mask_center_px,
-                svd_mode,
-                False,
-                full_output,
-                indices_sub,
-                frame,
-                cube_sig=cube_sig,
-                left_eigv=left_eigv,
-            )   
-        
-            if full_output:
-                residual_frame = res_result[1]
-                recon_frame = res_result[2]
-                residuals_cube[frame] = residual_frame.reshape((y, x))
-                recon_cube[frame] = recon_frame.reshape((y, x))
-            else:
-                residual_frame = res_result[1]
-                residuals_cube[frame] = residual_frame.reshape((y, x))
-        """   
         if full_output:
             residuals_cube = res[0]
             recon_cube = res[1]
