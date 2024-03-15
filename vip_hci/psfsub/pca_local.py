@@ -1379,7 +1379,7 @@ def do_pca_patch_corr(
         indices_batch = batch * size_batch + np.array([i for i in range(0, size_batch)])
         
         frame_ref = np.median(matrix
-                [indices_batch[0]:indices_batch[size_batch-1]:1, :, :], axis = 0)
+                [indices_batch[0]:indices_batch[-1]+1:1, :, :], axis = 0)
         
         percentile_adi = 100*(n_adi - ADI_Fr_Lib)/n_adi
         indices_adi = cube_detect_badfr_correlation(matrix_adi, frame_ref,
