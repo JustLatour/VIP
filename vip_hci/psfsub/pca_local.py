@@ -80,8 +80,7 @@ class PCA_ANNULAR_CORR_Params:
     """
     cube: np.ndarray = None
     angle_list: np.ndarray = None
-    cube_adi_ref: np.ndarray = None
-    angle_list_adiref: np.ndarray = None
+    epoch_indices: Union[tuple[int], list[int]] = None
     cube_rdi_ref: np.ndarray = None
     scale_list: np.ndarray = None
     radius_int: int = 0
@@ -1000,6 +999,7 @@ def _pca_adi_rdi(
 def _pca_adi_rdi_corr(
     cube,
     angle_list,
+    epoch_indices,
     radius_int=0,
     fwhm=4,
     asize=2,
@@ -1021,8 +1021,6 @@ def _pca_adi_rdi_corr(
     full_output=False,
     verbose=1,
     cube_rdi_ref=None,
-    cube_adi_ref=None,
-    angle_list_adiref=None,
     theta_init=0,
     weights=None,
     cube_sig=None,
@@ -1030,13 +1028,18 @@ def _pca_adi_rdi_corr(
     **rot_options,
 ):
     """PCA exploiting angular variability (ADI fashion)."""
-    array = cube
+    array = cube[epoch_indices[0]:epoch_indices[1]:1, :, :]
     if array.ndim != 3:
         raise TypeError("Input array is not a cube or 3d array")
-    if array.shape[0] != angle_list.shape[0]:
+    if cube.shape[0] != angle_list.shape[0]:
         raise TypeError("Input vector or parallactic angles has wrong length")
 
     n, y, x = array.shape
+    
+    cube_adi_ref = cube
+    angle_list_adiref = angle_list
+    
+    angle_list = angle_list[epoch_indices[0]:epoch_indices[1]:1]
 
     angle_list = check_pa_vector(angle_list)
     n_annuli = int((y / 2 - radius_int) / asize)
@@ -1130,6 +1133,7 @@ def _pca_adi_rdi_corr(
                     nproc,
                     do_pca_patch_corr,
                     array,
+                    epoch_indices,
                     xx,
                     yy,
                     iterable(range(N_It)),
@@ -1327,6 +1331,7 @@ def do_pca_patch(
 
 def do_pca_patch_corr(
     matrix,
+    epoch_indices,
     xx,
     yy,
     batch,
@@ -1377,10 +1382,7 @@ def do_pca_patch_corr(
                                      angle_list[indices_batch[0]:indices_batch[-1]+1]) 
             pa_limit = pa_range/2 + pa_threshold
             
-            for i in range(0, matrix_adi.shape[0], 1):
-                if angle_list_adiref[i] == angle_list[0]:
-                    offset = i
-                    break
+            offset = epoch_indices[0]
             
             index = offset + int((indices_batch[-1]-indices_batch[0])/2)
             indices_left = _find_indices_adi(angle_list_adiref, index, 
@@ -1401,6 +1403,7 @@ def do_pca_patch_corr(
         
         matrix_adi_ref = matrix_adi[:, yy, xx]
         matrix_adi_ref = matrix_adi_ref[indices_adi[0]]
+        
         
         if matrix_rdi is not None:
             n_rdi = matrix_rdi.shape[0]
