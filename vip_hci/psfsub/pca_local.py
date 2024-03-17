@@ -14,7 +14,7 @@ fashion) model PSF subtraction for ADI, ADI+SDI (IFS) and ADI+RDI datasets.
 """
 
 __author__ = "Carlos Alberto Gomez Gonzalez, Valentin Christiaens, Thomas Bédrine"
-__all__ = ["pca_annular", "PCA_ANNULAR_Params", "pca_annular_corr"]
+__all__ = ["pca_annular", "PCA_ANNULAR_Params", "pca_annular_corr", "PCA_ANNULAR_CORR_Params"]
 
 import numpy as np
 from multiprocessing import cpu_count
@@ -81,6 +81,7 @@ class PCA_ANNULAR_CORR_Params:
     cube: np.ndarray = None
     angle_list: np.ndarray = None
     cube_adi_ref: np.ndarray = None
+    angle_list_adiref: np.ndarray = None
     cube_rdi_ref: np.ndarray = None
     scale_list: np.ndarray = None
     radius_int: int = 0
@@ -1021,6 +1022,7 @@ def _pca_adi_rdi_corr(
     verbose=1,
     cube_rdi_ref=None,
     cube_adi_ref=None,
+    angle_list_adiref=None,
     theta_init=0,
     weights=None,
     cube_sig=None,
@@ -1148,6 +1150,7 @@ def _pca_adi_rdi_corr(
                     tol,
                     cube_rdi_ref,
                     cube_adi_ref,
+                    angle_list_adiref,
                     cube_sig,
                 )
 
@@ -1344,6 +1347,7 @@ def do_pca_patch_corr(
     tol,
     matrix_rdi,
     matrix_adi,
+    angle_list_adiref,
     matrix_sig,
 ):
     """Does the SVD/PCA for each frame patch (small matrix). For each frame we
@@ -1359,16 +1363,6 @@ def do_pca_patch_corr(
     matrix_segm = matrix[:, yy, xx]  # shape [nframes x npx_segment]
     matrix_segm = matrix_scaling(matrix_segm, scaling)
     
-    if matrix_adi is not None:
-        matrix_adi = matrix_scaling(matrix_adi, scaling)
-    else:
-        matrix_adi = matrix
-    
-    if matrix_rdi is not None:
-        matrix_segm_ref = matrix_rdi[:, yy, xx]
-        matrix_segm_ref = matrix_scaling(matrix_segm_ref, scaling)
-    else:
-        matrix_segm_ref = None
     if matrix_sig is not None:
         matrix_sig_segm = matrix_sig[:, yy, xx]
     else:
@@ -1377,6 +1371,25 @@ def do_pca_patch_corr(
     if batch != None:
         n_adi = matrix_adi.shape[0]
         indices_batch = batch * size_batch + np.array([i for i in range(0, size_batch)])
+        
+        if pa_threshold != 0:
+            pa_range = np.max(angle_list[indices_batch[0]:indices_batch[-1]+1])-np.min(
+                                     angle_list[indices_batch[0]:indices_batch[-1]+1]) 
+            pa_limit = pa_range/2 + pa_threshold
+            
+            for i in range(0, matrix_adi.shape[0], 1):
+                if angle_list_adiref[i] == angle_list[0]:
+                    offset = i
+                    break
+            
+            index = offset + int((indices_batch[-1]-indices_batch[0])/2)
+            indices_left = _find_indices_adi(angle_list_adiref, index, 
+                                             pa_limit, truncate=False)
+            matrix_adi = matrix_adi[indices_left, : ,:]
+            n_adi = matrix_adi.shape[0]
+            if n_adi < ADI_Fr_Lib:
+                msg = "Pa_threshold too high. Not enough frames ({}) left in the library".format(n_adi)
+                raise TypeError(msg)
         
         frame_ref = np.median(matrix
                 [indices_batch[0]:indices_batch[-1]+1:1, :, :], axis = 0)
