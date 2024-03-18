@@ -1037,7 +1037,8 @@ def _pca_adi_rdi_corr(
     n, y, x = array.shape
     
     cube_adi_ref = cube
-    angle_list_adiref = angle_list
+    angle_list_adiref = np.array([angle_list[i]+360 if angle_list[i]<0 
+                         else angle_list[i] for i in range(0, n)])
     
     angle_list = angle_list[epoch_indices[0]:epoch_indices[1]:1]
 
@@ -1382,24 +1383,27 @@ def do_pca_patch_corr(
                                      angle_list[indices_batch[0]:indices_batch[-1]+1]) 
             pa_limit = pa_range/2 + pa_threshold
             
-            offset = epoch_indices[0]
-            
-            index = offset + int((indices_batch[-1]-indices_batch[0])/2)
+            index = int((indices_batch[-1]+indices_batch[0])/2)
             indices_left = _find_indices_adi(angle_list_adiref, index, 
                                              pa_limit, truncate=False)
             matrix_adi = matrix_adi[indices_left, : ,:]
             n_adi = matrix_adi.shape[0]
-            if n_adi < ADI_Fr_Lib:
-                msg = "Pa_threshold too high. Not enough frames ({}) left in the library".format(n_adi)
-                raise TypeError(msg)
+            #if n_adi < ADI_Fr_Lib:
+            #    msg = "Pa_threshold too high. Not enough frames ({}) left in the library".format(n_adi)
+            #    raise TypeError(msg)
         
         frame_ref = np.median(matrix
                 [indices_batch[0]:indices_batch[-1]+1:1, :, :], axis = 0)
         
-        percentile_adi = 100*(n_adi - ADI_Fr_Lib)/n_adi
-        indices_adi = cube_detect_badfr_correlation(matrix_adi, frame_ref,
+        if n_adi <= ADI_Fr_Lib and n_adi > 0:
+            indices_adi = [list(np.arange(0, n_adi, 1))]
+        elif n_adi != 0:
+            percentile_adi = 100*(n_adi - ADI_Fr_Lib)/n_adi
+            indices_adi = cube_detect_badfr_correlation(matrix_adi, frame_ref,
                 percentile=percentile_adi, mode='annulus', inradius=radius_int,
                 width=asize, plot=False, verbose=False, crop_size=(radius_int+asize)*2)
+        else:
+            indices_adi = [[]]
         
         matrix_adi_ref = matrix_adi[:, yy, xx]
         matrix_adi_ref = matrix_adi_ref[indices_adi[0]]
