@@ -1037,12 +1037,12 @@ def _pca_adi_rdi_corr(
     n, y, x = array.shape
     
     cube_adi_ref = cube
-    angle_list_adiref = np.array([angle_list[i]+360 if angle_list[i]<0 
-                         else angle_list[i] for i in range(0, n)])
+    
+    angle_list = check_pa_vector(angle_list)
+    angle_list_adiref = angle_list
     
     angle_list = angle_list[epoch_indices[0]:epoch_indices[1]:1]
-
-    angle_list = check_pa_vector(angle_list)
+    
     n_annuli = int((y / 2 - radius_int) / asize)
 
     if isinstance(delta_rot, tuple):
