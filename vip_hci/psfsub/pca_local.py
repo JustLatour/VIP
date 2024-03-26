@@ -25,7 +25,7 @@ from .svd import get_eigenvectors
 from ..preproc import cube_derotate, cube_collapse, check_pa_vector, check_scal_vector
 from ..preproc import cube_detect_badfr_correlation
 from ..preproc import cube_rescaling_wavelengths as scwave
-from ..preproc.derotation import _find_indices_adi, _define_annuli
+from ..preproc.derotation import _find_indices_adi, _find_indices_adi2, _define_annuli
 from ..preproc.rescaling import _find_indices_sdi
 from ..config import time_ini, timing
 from ..config.paramenum import SvdMode, Imlib, Interpolation, Collapse, ALGO_KEY
@@ -1270,7 +1270,7 @@ def do_pca_patch(
 
     if pa_threshold != 0:
         # if ann_center > fwhm*10:
-        indices_left = _find_indices_adi(angle_list, frame, pa_threshold,
+        indices_left = _find_indices_adi2(angle_list, frame, pa_threshold,
                                          truncate=True,
                                          max_frames=max_frames_lib)
         # else:
@@ -1384,7 +1384,7 @@ def do_pca_patch_corr(
             pa_limit = pa_range/2 + pa_threshold
             
             index = int((indices_batch[-1]+indices_batch[0])/2)
-            indices_left = _find_indices_adi(angle_list_adiref, index, 
+            indices_left = _find_indices_adi2(angle_list_adiref, index, 
                                              pa_limit, truncate=False)
             matrix_adi = matrix_adi[indices_left, : ,:]
             n_adi = matrix_adi.shape[0]
