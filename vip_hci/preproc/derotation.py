@@ -405,7 +405,13 @@ def _find_indices_adi2(angle_list, frame, thr, nframes=None, out_closest=False, 
     indices_left = np.array(indices)
     if truncate:
         if len(indices) > max_frames:
-            indices_left = indices_left[0:max_frames]
+            frame_distances = [[i, np.abs(frame-i)] for i in indices_left]
+            def keyf(p):
+                x, y = p
+                return (y, x)
+            indices_left = np.array(sorted(frame_distances, key = keyf, 
+                            reverse = False)[0:max_frames])[:, 0]
+            #indices_left = indices_left[0:max_frames]
         
     return indices_left
 
