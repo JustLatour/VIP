@@ -620,8 +620,9 @@ def contr_dist(
     class_params['fwhm'] = fwhm
     
     
-    frames_no_fc = np.array(algo(cube=cube, angle_list=angle_list, fwhm=fwhm_med,
+    frames_no_fc[:, :, :] = np.array(algo(cube=cube, angle_list=angle_list, fwhm=fwhm_med,
                       verbose=verbose, **algo_dict))
+
     
     #CHANGE NOISE ANNULI TO HAVE IT ONLY HERE AT THIS DISTANCE !!!
     noise_res = [noise_dist(frames_no_fc[i], rad_dist, fwhm_med, wedge, 
