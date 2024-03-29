@@ -397,20 +397,23 @@ def _find_indices_adi2(angle_list, frame, thr, nframes=None, out_closest=False, 
     lower_limit = angle - thr
     indices = []
     for i, A in enumerate(angle_list):
-        if A < upper_limit and A > lower_limit:
+        if A <= upper_limit and A >= lower_limit:
             continue
         else:
             indices.append(i)
             
-    indices_left = np.array(indices)
+    indices_left = np.array(indices, dtype = 'int32')
     if truncate:
         if len(indices) > max_frames:
-            frame_distances = [[i, np.abs(frame-i)] for i in indices_left]
-            def keyf(p):
-                x, y = p
-                return (y, x)
-            indices_left = np.array(sorted(frame_distances, key = keyf, 
-                            reverse = False)[0:max_frames])[:, 0]
+            dPA = np.abs(angle_list[indices_left] - angle_list[frame])
+            sorted_indices = indices_left[np.argsort(dPA)]
+            indices_left = sorted_indices[:max_frames]
+            #frame_distances = [[i, np.abs(frame-i)] for i in indices_left]
+            #def keyf(p):
+            #   x, y = p
+            #   return (y, x)
+            #indices_left = np.array(sorted(frame_distances, key = keyf, 
+            #               reverse = False)[0:max_frames])[:, 0]
             #indices_left = indices_left[0:max_frames]
         
     return indices_left
