@@ -106,6 +106,7 @@ class PCA_ANNULAR_CORR_Params:
     verbose: bool = True
     left_eigv: bool = False
     Step: int = 5
+    Mask_Corr: np.ndarray = None
     ADI_Fr_Lib: Union[int, list[int]] = None
     RDI_Fr_Lib: Union[int, list[int]] = None
 
@@ -1017,6 +1018,7 @@ def _pca_adi_rdi_corr(
     full_output=False,
     verbose=1,
     cube_ref=None,
+    Mask_Corr = None,
     theta_init=0,
     weights=None,
     cube_sig=None,
@@ -1147,6 +1149,7 @@ def _pca_adi_rdi_corr(
                     RDI_Fr_Lib,
                     scaling,
                     tol,
+                    Mask_Corr,
                     cube_ref,
                     cube_adi_ref,
                     angle_list_adiref,
@@ -1343,6 +1346,7 @@ def do_pca_patch_corr(
     RDI_Fr_Lib,
     scaling,
     tol,
+    mask_corr,
     matrix_rdi,
     matrix_adi,
     angle_list_adiref,
@@ -1365,6 +1369,16 @@ def do_pca_patch_corr(
         matrix_sig_segm = matrix_sig[:, yy, xx]
     else:
         matrix_sig_segm = None
+        
+    
+    if mask_corr is not None:
+        matrix_corr = matrix * mask_corr
+        matrix_adi_corr = matrix_adi * mask_corr
+        matrix_rdi_corr = matrix_rdi * mask_corr
+    else:
+        matrix_corr = matrix
+        matrix_adi_corr = matrix_adi
+        matrix_rdi_corr = matrix_rdi
     
     if batch is not None:
         n_adi = matrix_adi.shape[0]
@@ -1384,16 +1398,22 @@ def do_pca_patch_corr(
             #    msg = "Pa_threshold too high. Not enough frames ({}) left in the library".format(n_adi)
             #    raise TypeError(msg)
         
-        frame_ref = np.median(matrix
+        frame_ref = np.median(matrix_corr
                 [indices_batch[0]:indices_batch[-1]+1:1, :, :], axis = 0)
         
         if (ADI_Fr_Lib is None) or (n_adi <= ADI_Fr_Lib and n_adi > 0):
             indices_adi = [list(np.arange(0, n_adi, 1))]
         elif n_adi != 0:
             percentile_adi = 100*(n_adi - ADI_Fr_Lib)/n_adi
-            indices_adi = cube_detect_badfr_correlation(matrix_adi, frame_ref,
-                percentile=percentile_adi, mode='annulus', inradius=radius_int,
-                width=asize, plot=False, verbose=False, crop_size=(radius_int+asize)*2)
+            if mask_corr is None:
+                indices_adi = cube_detect_badfr_correlation(matrix_adi, frame_ref,
+                        percentile=percentile_adi, mode='annulus', inradius=radius_int,
+                        width=asize, plot=False, verbose=False, 
+                        crop_size=(radius_int+asize)*2)
+            else:
+                indices_adi = cube_detect_badfr_correlation(matrix_adi_corr, frame_ref,
+                        percentile=percentile_adi, plot=False, verbose=False, 
+                        crop_size=frame_ref.shape[0]-2)
         else:
             indices_adi = [[]]
         
@@ -1408,9 +1428,15 @@ def do_pca_patch_corr(
                 data_ref = np.concatenate((matrix_adi_ref, matrix_rdi_ref))
             else:
                 percentile_rdi = 100*(n_rdi - RDI_Fr_Lib)/n_rdi
-                indices_rdi = cube_detect_badfr_correlation(matrix_rdi, frame_ref,
-                    percentile=percentile_rdi, mode='annulus', inradius=radius_int,
-                    width=asize, plot=False, verbose=False, crop_size=(radius_int+asize)*2)
+                if mask_corr is None:
+                    indices_rdi = cube_detect_badfr_correlation(matrix_rdi, frame_ref,
+                        percentile=percentile_rdi, mode='annulus', inradius=radius_int,
+                        width=asize, plot=False, verbose=False, 
+                        crop_size=(radius_int+asize)*2)
+                else:
+                    indices_rdi = cube_detect_badfr_correlation(matrix_rdi_corr, 
+                        frame_ref, percentile=percentile_rdi, plot=False, verbose=False, 
+                        crop_size=frame_ref.shape[0]-2)
                 matrix_rdi_ref = matrix_rdi[:, yy, xx]
                 matrix_rdi_ref = matrix_rdi_ref[indices_rdi[0]]
                 data_ref = np.concatenate((matrix_adi_ref, matrix_rdi_ref))

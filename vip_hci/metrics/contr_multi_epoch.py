@@ -657,7 +657,7 @@ def contr_dist(
         fc_map = np.ones_like(cube[0]) * 1e-6
         fcy = 0
         fcx = 0
-        flux = fc_snr * np.median(noise)
+        flux = fc_snr * np.min(noise)
         cube_fc = cube_inject_companions(
             cube_fc,
             psf_template,
