@@ -81,7 +81,7 @@ class PCA_ANNULAR_CORR_Params:
     cube: np.ndarray = None
     angle_list: np.ndarray = None
     epoch_indices: Union[tuple[int], list[int]] = None
-    cube_rdi_ref: np.ndarray = None
+    cube_ref: np.ndarray = None
     scale_list: np.ndarray = None
     radius_int: int = 0
     fwhm: float = 4
@@ -92,8 +92,6 @@ class PCA_ANNULAR_CORR_Params:
     ncomp: Union[int, Tuple, np.ndarray, AUTO] = 1
     svd_mode: Enum = SvdMode.LAPACK
     nproc: int = 1
-    min_frames_lib: int = 10
-    max_frames_lib: int = 200
     tol: float = 1e-1
     scaling: Enum = None
     imlib: Enum = Imlib.VIPFFT
@@ -108,7 +106,7 @@ class PCA_ANNULAR_CORR_Params:
     verbose: bool = True
     left_eigv: bool = False
     Step: int = 5
-    ADI_Fr_Lib: Union[int, list[int]] = 100
+    ADI_Fr_Lib: Union[int, list[int]] = None
     RDI_Fr_Lib: Union[int, list[int]] = None
 
 
@@ -1008,8 +1006,6 @@ def _pca_adi_rdi_corr(
     ncomp=1,
     svd_mode="lapack",
     nproc=None,
-    min_frames_lib=2,
-    max_frames_lib=200,
     Step = 5,
     ADI_Fr_Lib = 100,
     RDI_Fr_Lib = 100,
@@ -1020,7 +1016,7 @@ def _pca_adi_rdi_corr(
     collapse="median",
     full_output=False,
     verbose=1,
-    cube_rdi_ref=None,
+    cube_ref=None,
     theta_init=0,
     weights=None,
     cube_sig=None,
@@ -1117,8 +1113,8 @@ def _pca_adi_rdi_corr(
             xx = indices[j][1]
             matrix_segm = array[:, yy, xx]  # shape [nframes x npx_segment]
             matrix_segm = matrix_scaling(matrix_segm, scaling)
-            if cube_rdi_ref is not None:
-                matrix_segm_ref = cube_rdi_ref[:, yy, xx]
+            if cube_ref is not None:
+                matrix_segm_ref = cube_ref[:, yy, xx]
                 matrix_segm_ref = matrix_scaling(matrix_segm_ref, scaling)
             else:
                 matrix_segm_ref = None
@@ -1149,11 +1145,9 @@ def _pca_adi_rdi_corr(
                     ncompann,
                     ADI_Fr_Lib,
                     RDI_Fr_Lib,
-                    min_frames_lib,
-                    max_frames_lib,
                     scaling,
                     tol,
-                    cube_rdi_ref,
+                    cube_ref,
                     cube_adi_ref,
                     angle_list_adiref,
                     cube_sig,
@@ -1347,8 +1341,6 @@ def do_pca_patch_corr(
     ncomp,
     ADI_Fr_Lib,
     RDI_Fr_Lib,
-    min_frames_lib,
-    max_frames_lib,
     scaling,
     tol,
     matrix_rdi,
@@ -1374,7 +1366,7 @@ def do_pca_patch_corr(
     else:
         matrix_sig_segm = None
     
-    if batch != None:
+    if batch is not None:
         n_adi = matrix_adi.shape[0]
         indices_batch = batch * size_batch + np.array([i for i in range(0, size_batch)])
         
@@ -1395,7 +1387,7 @@ def do_pca_patch_corr(
         frame_ref = np.median(matrix
                 [indices_batch[0]:indices_batch[-1]+1:1, :, :], axis = 0)
         
-        if n_adi <= ADI_Fr_Lib and n_adi > 0:
+        if (ADI_Fr_Lib is None) or (n_adi <= ADI_Fr_Lib and n_adi > 0):
             indices_adi = [list(np.arange(0, n_adi, 1))]
         elif n_adi != 0:
             percentile_adi = 100*(n_adi - ADI_Fr_Lib)/n_adi
@@ -1411,13 +1403,17 @@ def do_pca_patch_corr(
         
         if matrix_rdi is not None:
             n_rdi = matrix_rdi.shape[0]
-            percentile_rdi = 100*(n_rdi - RDI_Fr_Lib)/n_rdi
-            indices_rdi = cube_detect_badfr_correlation(matrix_rdi, frame_ref,
-                percentile=percentile_rdi, mode='annulus', inradius=radius_int,
-                width=asize, plot=False, verbose=False, crop_size=(radius_int+asize)*2)
-            matrix_rdi_ref = matrix_rdi[:, yy, xx]
-            matrix_rdi_ref = matrix_rdi_ref[indices_rdi[0]]
-            data_ref = np.concatenate((matrix_adi_ref, matrix_rdi_ref))
+            if (RDI_Fr_Lib is None) or (RDI_Fr_Lib >= n_rdi):
+                matrix_rdi_ref = matrix_rdi[:, yy, xx]
+                data_ref = np.concatenate((matrix_adi_ref, matrix_rdi_ref))
+            else:
+                percentile_rdi = 100*(n_rdi - RDI_Fr_Lib)/n_rdi
+                indices_rdi = cube_detect_badfr_correlation(matrix_rdi, frame_ref,
+                    percentile=percentile_rdi, mode='annulus', inradius=radius_int,
+                    width=asize, plot=False, verbose=False, crop_size=(radius_int+asize)*2)
+                matrix_rdi_ref = matrix_rdi[:, yy, xx]
+                matrix_rdi_ref = matrix_rdi_ref[indices_rdi[0]]
+                data_ref = np.concatenate((matrix_adi_ref, matrix_rdi_ref))
         else:
             data_ref = matrix_adi_ref
         

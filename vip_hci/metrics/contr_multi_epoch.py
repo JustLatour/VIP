@@ -507,7 +507,7 @@ def contr_dist(
     fc_rad_sep=3,
     noise_sep=1,
     wedge=(0, 360),
-    fc_snr=100,
+    fc_snr=20,
     student=True,
     transmission=None,
     dpi=vip_figdpi,
@@ -567,11 +567,6 @@ def contr_dist(
         if nbranch > 1 and angular_range < 360:
             msg = "Only a single branch is allowed when working on a wedge"
             raise RuntimeError(msg)
-
-    # throughput
-    verbose_thru = False
-    if verbose == 2:
-        verbose_thru = True
         
     nproc = algo_dict.get("nproc", 1)
     imlib = algo_dict.get("imlib", "vip-fft")
@@ -662,7 +657,7 @@ def contr_dist(
         fc_map = np.ones_like(cube[0]) * 1e-6
         fcy = 0
         fcx = 0
-        flux = fc_snr * np.mean(noise)
+        flux = fc_snr * np.median(noise)
         cube_fc = cube_inject_companions(
             cube_fc,
             psf_template,
@@ -715,10 +710,10 @@ def contr_dist(
     res_lev_samp_sm = res_lev_samp
     
     
-    Thru_Cont = np.zeros((nnpcs, 2))
+    Thru_Cont = np.zeros((nnpcs, 3))
+    Thru_Cont[:, 2] = ncomp
     
     Thru_Cont[:,0] = [np.nanmean(Throughput[i,:]) for i in range(0, nnpcs)]
-
 
     
     if isinstance(starphot, float) or isinstance(starphot, int):
@@ -730,7 +725,7 @@ def contr_dist(
             (sigma * noise_samp_sm + res_lev_samp_sm) / Thru_Cont[:,0]
         ) / np.median(starphot)
         
-    return Thru_Cont
+    return (Thru_Cont, frames_fc)
 
 
 
@@ -843,9 +838,5 @@ def apertureOne_flux(array, yc, xc, fwhm, ap_factor=1, mean=False, verbose=False
         obj_flux = np.array(obj_flux["aperture_sum"])
         
     flux = obj_flux
-
-    if verbose:
-        print("Coordinates of object {} : ({},{})".format(i, y, x))
-        print("Object Flux = {:.2f}".format(flux[i]))
 
     return flux
