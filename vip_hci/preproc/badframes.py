@@ -307,7 +307,7 @@ def cube_detect_badfr_correlation(array, frame_ref, crop_size=30,
     n = array.shape[0]
     # the cube is cropped to the central area
     subarray = cube_crop_frames(array, crop_size, verbose=False)
-    if isinstance(frame_ref, np.ndarray):
+    if isinstance(frame_ref, np.ndarray) and mode != 'annulus':
         frame_ref = frame_crop(frame_ref, crop_size, verbose=False)
     distances = cube_distance(subarray, frame_ref, mode, dist,
                               inradius=inradius, width=width, plot=False)
