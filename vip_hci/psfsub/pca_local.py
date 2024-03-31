@@ -14,7 +14,8 @@ fashion) model PSF subtraction for ADI, ADI+SDI (IFS) and ADI+RDI datasets.
 """
 
 __author__ = "Carlos Alberto Gomez Gonzalez, Valentin Christiaens, Thomas Bédrine"
-__all__ = ["pca_annular", "PCA_ANNULAR_Params", "pca_annular_corr", "PCA_ANNULAR_CORR_Params"]
+__all__ = ["pca_annular", "PCA_ANNULAR_Params", "pca_annular_corr", 
+           "PCA_ANNULAR_CORR_Params", "ARDI_DOUBLE_PCA_Params", "ARDI_double_pca"]
 
 import numpy as np
 from multiprocessing import cpu_count
@@ -24,7 +25,7 @@ from dataclasses import dataclass
 from .svd import get_eigenvectors
 from ..preproc import (cube_derotate, cube_collapse, check_pa_vector,
                        check_scal_vector)
-from ..preproc import cube_detect_badfr_correlation
+from ..preproc import cube_detect_badfr_correlation, cube_crop_frames
 from ..preproc import cube_rescaling_wavelengths as scwave
 from ..preproc.derotation import _find_indices_adi, _find_indices_adi2, _define_annuli
 from ..preproc.rescaling import _find_indices_sdi
@@ -33,7 +34,8 @@ from ..config.paramenum import SvdMode, Imlib, Interpolation, Collapse, ALGO_KEY
 from ..config.utils_conf import pool_map, iterable
 from ..config.utils_param import setup_parameters, separate_kwargs_dict
 from ..stats import descriptive_stats
-from ..var import get_annulus_segments, matrix_scaling
+from ..var import get_annulus_segments, matrix_scaling, mask_circle
+from .pca_fullfr import pca, PCA_Params
 AUTO = "auto"
 
 
@@ -110,6 +112,44 @@ class PCA_ANNULAR_CORR_Params:
     Mask_Corr: np.ndarray = None
     ADI_Fr_Lib: Union[int, list[int]] = None
     RDI_Fr_Lib: Union[int, list[int]] = None
+
+@dataclass
+class ARDI_DOUBLE_PCA_Params:
+    """
+    Set of parameters for the mutli-epoch annular pca.
+    """
+    cube: np.ndarray = None
+    angle_list: np.ndarray = None
+    epoch_indices: Union[tuple[int], list[int]] = None
+    cube_ref: np.ndarray = None
+    scale_list: np.ndarray = None
+    mask_center_px: int = 0
+    radius_int: int = 0
+    fwhm: float = 4
+    asize: float = 4
+    n_segments: Union[int, List[int], AUTO] = 1
+    delta_rot: Union[float, Tuple[float]] = (0.1, 1)
+    ncomp: Union[int, Tuple] = 1
+    svd_mode: Enum = SvdMode.LAPACK
+    nproc: int = 1
+    tol: float = 1e-1
+    scaling: Enum = None
+    imlib: Enum = Imlib.VIPFFT
+    interpolation: Enum = Interpolation.LANCZOS4
+    collapse: Enum = Collapse.MEDIAN
+    theta_init: int = 0
+    weights: np.ndarray = None
+    cube_sig: np.ndarray = None
+    full_output: bool = False
+    verbose: bool = True
+    left_eigv: bool = False
+    Step: int = 5
+    mask_rdi: np.ndarray = None
+    n_annuli: int = None
+    Mask_Corr: np.ndarray = None
+    ADI_Fr_Lib: Union[int, list[int]] = None
+    RDI_Fr_Lib: Union[int, list[int]] = None
+    crop_adi: int = None
 
 
 def pca_annular(*all_args: List, **all_kwargs: dict):
@@ -655,6 +695,135 @@ def pca_annular_corr(*all_args: List, **all_kwargs: dict):
             return cube_out, cube_der, frame
         else:
             return frame
+        
+        
+def ARDI_double_pca(*all_args: List, **all_kwargs: dict):
+    
+    class_params, rot_options = separate_kwargs_dict(initial_kwargs=all_kwargs,
+                                    parent_class=ARDI_DOUBLE_PCA_Params)
+    
+    algo_params = ARDI_DOUBLE_PCA_Params(*all_args, **class_params)
+    
+    if not (isinstance(algo_params.ncomp, tuple) or  (isinstance(algo_params.ncomp, int))):
+         raise TypeError("ncomp must be a tuple or an int")
+    
+    if not isinstance(algo_params.ncomp, tuple):
+        ncomp = (algo_params.ncomp, algo_params.ncomp)
+    else:
+        ncomp = algo_params.ncomp
+
+    pca_dir = dir(PCA_Params)
+    pca_kwargs = {}
+    for key in dir(algo_params):
+        if key[0] == '_':
+            continue
+        if (key == 'ncomp') or (key == 'full_output') or (key == 'delta_rot'):
+            continue
+        if key not in pca_dir:
+            continue
+        pca_kwargs[key] = getattr(algo_params, key)
+        
+    Result_RDI = pca(**pca_kwargs, ncomp = ncomp[0], full_output = True, **rot_options)
+    _, _, _, residuals_adi, _ = Result_RDI
+    """
+    Result_RDI = pca(algo_params.cube,
+                     algo_params.angle_list,
+                     algo_params.cube_ref,
+                     ncomp = ncomp[0],
+                     svd_mode = algo_params.svd_mode,
+                     imlib = algo_params.imlib,
+                     interpolation = algo_params.interpolation,
+                     collapse = algo_params.collapse,
+                     mask_rdi = algo_params.mask_rdi,
+                     nproc = algo_params.nproc,
+                     full_output = True, 
+                     weights = algo_params.weights)
+    """
+    
+    if algo_params.crop_adi is not None:
+        residuals_adi = cube_crop_frames(residuals_adi, int(algo_params.crop_adi), 
+                                         verbose = False, force = True)
+        
+    if algo_params.ADI_Fr_Lib is None:
+        pca_annular_dir = dir(PCA_ANNULAR_Params)
+    else:
+        pca_annular_dir = dir(PCA_ANNULAR_CORR_Params)
+        
+    pca_annular_kwargs = {}
+    for key in dir(algo_params):
+        if key[0] == '_':
+            continue
+        if (key == 'ncomp' or key == 'cube_ref'):
+            continue
+        if key not in pca_annular_dir:
+            continue
+        pca_annular_kwargs[key] = getattr(algo_params, key)
+
+    
+    if ((algo_params.mask_rdi is not None) and isinstance(algo_params.mask_rdi, tuple)
+                and (algo_params.n_annuli is not None)):
+        mask_copy = np.copy(algo_params.mask_rdi[1])
+        yc = int(mask_copy.shape[0]/2)
+        start = False
+        Crop = True
+        for i in range(0, yc, 1):
+            pixel = mask_copy[yc, yc+i]
+            if pixel == 0 and start == False:
+                continue
+            elif (start == False) and (pixel == 1):
+                radius_int = i
+                start = True
+                continue
+            elif pixel == 0:
+                width = i - radius_int
+                break
+            elif i == yc-1:
+                width = i - radius_int
+        
+        asize = int(width / algo_params.n_annuli)
+        
+        pca_annular_kwargs['radius_int'] = radius_int
+        pca_annular_kwargs['asize'] = asize        
+        
+        if (yc - asize) < radius_int + width:
+            Crop = False
+        
+        if Crop == True:
+            if algo_params.cube.shape[2] % 2 == 1:
+                crop_size = (radius_int + width) * 2 + 3
+            else:
+                crop_size = (radius_int + width) * 2 + 2
+            residuals_adi = cube_crop_frames(residuals_adi, crop_size, 
+                                             verbose = False)
+    
+    pca_annular_kwargs['cube'] = residuals_adi
+    
+    if algo_params.ADI_Fr_Lib is None:
+        Final_Result = pca_annular(**pca_annular_kwargs, ncomp = ncomp[1], **rot_options)
+    else:
+        Final_Result = pca_annular_corr(**pca_annular_kwargs, ncomp = ncomp[1], **rot_options)
+    
+    if algo_params.full_output == False and Crop == True:
+        mask_return = np.ones_like(algo_params.cube[0, :, :], dtype = bool)
+        mask_return = mask_circle(mask_return, int(crop_size/2), mode = 'out')
+        mask_inter = np.copy(mask_return)
+        mask_inter = mask_inter[np.newaxis, :, :]
+        mask_inter = cube_crop_frames(mask_inter, crop_size, verbose = False)
+        mask_inter = mask_inter.reshape((crop_size, crop_size))
+        
+        if len(ncomp[1]) == 1:
+            Final_Result = Final_Result[np.newaxis, :, :]
+        
+        Final_Result = np.array(Final_Result)
+        Result = np.zeros((len(ncomp[1]), algo_params.cube.shape[1], algo_params.cube.shape[1]))
+        Result[:, mask_return] = Final_Result[:, mask_inter]
+        
+        if len(ncomp[1]) == 1:
+            Result = Result.reshape((algo_params.cube.shape[1], algo_params.cube.shape[1]))
+            
+        return Result
+    
+    return Final_Result
         
 
 ################################################################################

@@ -520,6 +520,8 @@ def contr_dist(
     fix_y_lim=(),
     figsize=vip_figsize,
     algo_class=None,
+    matrix_adi_ref=None,
+    angle_adi_ref=None,
     **algo_dict,
 ):
     if cube.ndim != 3 and cube.ndim != 4:
@@ -577,6 +579,11 @@ def contr_dist(
     if cube.ndim == 3:
         if isinstance(ncomp, list):
             nnpcs = len(ncomp)
+        elif isinstance(ncomp, tuple):
+            if isinstance(ncomp[1], list):
+                nnpcs = len(ncomp[1])
+            else:
+                nnpcs = 1
         else:
             nnpcs = 1
     elif cube.ndim == 4:
@@ -607,13 +614,15 @@ def contr_dist(
     mod = algo.__module__[:idx]
     tmp = __import__(mod, fromlist=[algo_name.upper()+'_Params'])    
     algo_params = getattr(tmp, algo_name.upper()+'_Params')
-    class_params, rot_options = separate_kwargs_dict(
-        initial_kwargs=algo_dict, parent_class=PCA_ANNULAR_MULTI_EPOCH_Params)
-        
-    class_params['cube'] = cube
-    class_params['angle_list'] = angle_list
-    class_params['fwhm'] = fwhm
     
+    if matrix_adi_ref is not None:
+        if 'cube_ref' in algo_dict.keys():
+            NAdiRef = algo_dict['cube_ref'].shape[0]
+            algo_dict['cube_ref'] = np.vstack((algo_dict['cube_ref'], matrix_adi_ref))
+        else:
+            NAdiRef = 0
+            algo_dict['cube_ref'] = matrix_adi_ref
+        NRefT = algo_dict['cube_ref'].shape[0]
     
     frames_no_fc[:, :, :] = np.array(algo(cube=cube, angle_list=angle_list, fwhm=fwhm_med,
                       verbose=verbose, **algo_dict))
@@ -649,15 +658,31 @@ def contr_dist(
     parangles = angle_list
 
     # each branch is computed separately
+    if matrix_adi_ref is not None:
+        copy_ref = np.copy(algo_dict['cube_ref'])
+        
     for br in range(nbranch):
+        
+        if matrix_adi_ref is not None:
+            algo_dict['cube_ref'] = np.copy(copy_ref)
+        
         # each pattern is computed separately. For each one the companions
         # are separated by "fc_rad_sep * fwhm", interleaving the injections
-        cube_fc = cube.copy()
-        # filling map with small numbers
         fc_map = np.ones_like(cube[0]) * 1e-6
         fcy = 0
         fcx = 0
         flux = fc_snr * np.min(noise)
+        
+        if matrix_adi_ref is None:
+            cube_fc = cube.copy()
+        else:
+            cube_fc = cube.copy()
+            cube_adi_fc = np.copy(algo_dict['cube_ref'][NAdiRef:NRefT, :, :])
+            cube_fc = np.vstack((cube_fc, cube_adi_fc))
+            parangles = np.concatenate((angle_list, angle_adi_ref))
+            print(cube_fc.shape)
+            print(parangles.shape)
+        
         cube_fc = cube_inject_companions(
             cube_fc,
             psf_template,
@@ -669,8 +694,12 @@ def contr_dist(
             imlib=imlib,
             interpolation=interpolation,
             verbose=False,
-        )
+            )
         
+        if matrix_adi_ref is not None:
+            algo_dict['cube_ref'][NAdiRef:NRefT, :, :] = cube_fc[n:, :, :]
+            cube_fc = cube_fc[0:n, :, :]
+            
         
         y = cy + rad_dist * \
             np.sin(np.deg2rad(br * angle_branch + theta))
@@ -711,7 +740,10 @@ def contr_dist(
     
     
     Thru_Cont = np.zeros((nnpcs, 3))
-    Thru_Cont[:, 2] = ncomp
+    if isinstance(ncomp, tuple):
+        Thru_Cont[:, 2] = ncomp[1]
+    else:
+        Thru_Cont[:, 2] = ncomp
     
     Thru_Cont[:,0] = [np.nanmean(Throughput[i,:]) for i in range(0, nnpcs)]
 
