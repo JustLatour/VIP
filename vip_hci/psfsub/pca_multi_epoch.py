@@ -38,10 +38,10 @@ class PCA_MULTI_EPOCH_Params(PCA_Params):
     """
     Set of parameters for the multi-epoch pca
     """
-    ncomp : list[int] = 1
+    ncomp : List[int] = 1
     delta_rot : Union[float, List]
-    cube_delimiter : list[int] = None
-    cube_ref_delimiter : list[int] = None
+    cube_delimiter : List[int] = None
+    cube_ref_delimiter : List[int] = None
     
     
 @dataclass
@@ -49,10 +49,10 @@ class PCA_ANNULAR_MULTI_EPOCH_Params(PCA_ANNULAR_Params):
     """
     Set of parameters for the mutli-epoch annular pca.
     """
-    ncomp : list[int] = 1
+    ncomp : List[int] = 1
     delta_rot : Union[float, List]
-    cube_delimiter : list[int] = None
-    cube_ref_delimiter : list[int] = None
+    cube_delimiter : List[int] = None
+    cube_ref_delimiter : List[int] = None
 
 
 
