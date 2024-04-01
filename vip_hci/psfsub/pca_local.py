@@ -110,8 +110,8 @@ class PCA_ANNULAR_CORR_Params:
     left_eigv: bool = False
     Step: int = 5
     Mask_Corr: np.ndarray = None
-    ADI_Fr_Lib: Union[int, list[int]] = None
-    RDI_Fr_Lib: Union[int, list[int]] = None
+    ADI_Fr_Lib: Union[int, List[int]] = None
+    RDI_Fr_Lib: Union[int, List[int]] = None
 
 @dataclass
 class ARDI_DOUBLE_PCA_Params:
@@ -120,7 +120,7 @@ class ARDI_DOUBLE_PCA_Params:
     """
     cube: np.ndarray = None
     angle_list: np.ndarray = None
-    epoch_indices: Union[tuple[int], list[int]] = None
+    epoch_indices: Union[Tuple[int], List[int]] = None
     cube_ref: np.ndarray = None
     scale_list: np.ndarray = None
     mask_center_px: int = 0
@@ -147,8 +147,8 @@ class ARDI_DOUBLE_PCA_Params:
     mask_rdi: np.ndarray = None
     n_annuli: int = None
     Mask_Corr: np.ndarray = None
-    ADI_Fr_Lib: Union[int, list[int]] = None
-    RDI_Fr_Lib: Union[int, list[int]] = None
+    ADI_Fr_Lib: Union[int, List[int]] = None
+    RDI_Fr_Lib: Union[int, List[int]] = None
     crop_adi: int = None
 
 
