@@ -83,7 +83,7 @@ class PCA_ANNULAR_CORR_Params:
     """
     cube: np.ndarray = None
     angle_list: np.ndarray = None
-    epoch_indices: Union[tuple[int], list[int]] = None
+    epoch_indices: Union[Tuple[int], List[int]] = None
     cube_ref: np.ndarray = None
     scale_list: np.ndarray = None
     radius_int: int = 0
