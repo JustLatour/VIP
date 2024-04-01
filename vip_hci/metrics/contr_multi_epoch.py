@@ -616,7 +616,7 @@ def contr_dist(
     algo_params = getattr(tmp, algo_name.upper()+'_Params')
     
     if matrix_adi_ref is not None:
-        if 'cube_ref' in algo_dict.keys():
+        if 'cube_ref' in algo_dict.keys() and algo_dict['cube_ref'] is not None:
             NAdiRef = algo_dict['cube_ref'].shape[0]
             algo_dict['cube_ref'] = np.vstack((algo_dict['cube_ref'], matrix_adi_ref))
         else:
@@ -680,8 +680,6 @@ def contr_dist(
             cube_adi_fc = np.copy(algo_dict['cube_ref'][NAdiRef:NRefT, :, :])
             cube_fc = np.vstack((cube_fc, cube_adi_fc))
             parangles = np.concatenate((angle_list, angle_adi_ref))
-            print(cube_fc.shape)
-            print(parangles.shape)
         
         cube_fc = cube_inject_companions(
             cube_fc,

@@ -744,7 +744,7 @@ def ARDI_double_pca(*all_args: List, **all_kwargs: dict):
         residuals_adi = cube_crop_frames(residuals_adi, int(algo_params.crop_adi), 
                                          verbose = False, force = True)
         
-    if algo_params.ADI_Fr_Lib is None:
+    if algo_params.epoch_indices is None:
         pca_annular_dir = dir(PCA_ANNULAR_Params)
     else:
         pca_annular_dir = dir(PCA_ANNULAR_CORR_Params)
@@ -763,7 +763,7 @@ def ARDI_double_pca(*all_args: List, **all_kwargs: dict):
     if ((algo_params.mask_rdi is not None) and isinstance(algo_params.mask_rdi, tuple)
                 and (algo_params.n_annuli is not None)):
         mask_copy = np.copy(algo_params.mask_rdi[1])
-        yc = int(mask_copy.shape[0]/2)
+        yc = int(mask_copy.shape[1]/2)
         start = False
         Crop = True
         for i in range(0, yc, 1):
@@ -787,18 +787,33 @@ def ARDI_double_pca(*all_args: List, **all_kwargs: dict):
         
         if (yc - asize) < radius_int + width:
             Crop = False
+            
+        if 'Mask_Corr' in pca_annular_kwargs and pca_annular_kwargs['Mask_Corr'] is not None:
+            mask_corr_copy = np.copy(algo_params.Mask_Corr)
+            y_c = int(mask_corr_copy.shape[1]/2)
+            size = mask_corr_copy.shape[1]
+            for i in range(size-1, 0, -1):
+                pixel = mask_corr_copy[y_c, i]
+                if pixel == 0:
+                    continue
+                else:
+                    crop_size_corr = i - y_c
+                    break
+        else:
+            crop_size_corr = 0
         
         if Crop == True:
             if algo_params.cube.shape[2] % 2 == 1:
                 crop_size = (radius_int + width) * 2 + 3
             else:
                 crop_size = (radius_int + width) * 2 + 2
+            crop_size =int(np.max(crop_size, crop_size_corr))
             residuals_adi = cube_crop_frames(residuals_adi, crop_size, 
                                              verbose = False)
     
     pca_annular_kwargs['cube'] = residuals_adi
     
-    if algo_params.ADI_Fr_Lib is None:
+    if algo_params.epoch_indices is None:
         Final_Result = pca_annular(**pca_annular_kwargs, ncomp = ncomp[1], **rot_options)
     else:
         Final_Result = pca_annular_corr(**pca_annular_kwargs, ncomp = ncomp[1], **rot_options)
