@@ -21,3 +21,4 @@ from .loci import *
 from .medsub import *
 from .nmf_fullfr import *
 from .nmf_local import *
+from .pca_multi_epoch import *
