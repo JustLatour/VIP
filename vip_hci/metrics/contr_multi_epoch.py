@@ -916,11 +916,11 @@ def contrast_step_pca_ann(
     noise_avg = [noise_dist(frames_no_fc[i, :, :], rad_dist, fwhm_med, wedge, 
                         False, debug) for i in range(0, nnpcs)]
     for s in range(0, TotalSteps, 1):
-        noise_res.append(np.array([noise_dist(res_cube_no_fc[i, s*step:(s+1)*step:1, :, :], 
-                            rad_dist, fwhm_med, wedge, False, debug) 
-                            for i in range(0, nnpcs)]))
-        noise.append(np.array(noise_res[s]))[:, 0]
-        mean_res.append(np.array(noise_res[s]))[:, 1]
+        noise_res.append(np.array(
+            [noise_dist(np.median(res_cube_no_fc[i, s*step:(s+1)*step:1, :, :], axis = 0), 
+            rad_dist, fwhm_med, wedge, False, debug) for i in range(0, nnpcs)]))
+        noise.append(np.array(noise_res[s])[:, 0])
+        mean_res.append(np.array(noise_res[s])[:, 1])
     
     
     # We crop the PSF and check if PSF has been normalized (so that flux in
@@ -949,6 +949,7 @@ def contrast_step_pca_ann(
     if matrix_adi_ref is not None:
         copy_ref = np.copy(algo_dict['cube_ref'])
         
+    loc = []
     for br in range(nbranch):
         
         if matrix_adi_ref is not None:
@@ -959,7 +960,7 @@ def contrast_step_pca_ann(
         fc_map = np.ones_like(cube[0]) * 1e-6
         fcy = 0
         fcx = 0
-        flux = fc_snr * np.min(noise_avg)
+        flux = fc_snr * np.min(np.array(noise_avg)[:, 0])
         
         if matrix_adi_ref is None:
             cube_fc = cube.copy()
@@ -996,13 +997,14 @@ def contrast_step_pca_ann(
         )
         fcy = y
         fcx = x
+        loc.append((fcy, fcx))
 
         if verbose:
             msg2 = "Fake companions injected in branch {} "
             print(msg2.format(br + 1))
             timing(start_time)
     
-        _, res_cube_fc[:, : ,:, :], frames_fc[:, br, :, :] = algo(cube=cube_fc, 
+        _, res_cube_fc[:, br, : ,:, :], frames_fc[:, br, :, :] = algo(cube=cube_fc, 
                     angle_list=angle_list, fwhm=fwhm_med, verbose=verbose, 
                     full_output = True, **algo_dict)
         
@@ -1015,19 +1017,19 @@ def contrast_step_pca_ann(
         thruput = []
         for s in range(0, TotalSteps, 1):
             frame_step_no_fc = np.median(res_cube_no_fc[:, s*step:(s+1)*step, :, :], axis = 1)
-            frame_step_fc = np.median(res_cube_fc[:, br, s*step:(s+1)*step, :, :], axis = 2)
+            frame_step_fc = np.median(res_cube_fc[:, br, s*step:(s+1)*step, :, :], axis = 1)
             recovered_flux.append(np.array([apertureOne_flux(
-                (frame_step_fc[i, br, :, :] - frame_step_no_fc[i, :, :]), fcy, fcx, fwhm_med
+                (frame_step_fc[i, :, :] - frame_step_no_fc[i, :, :]), fcy, fcx, fwhm_med
             ) for i in range(0, nnpcs)]))
-            thruput.append(np.array(recovered_flux / injected_flux))
-            thruput[s][np.where(thruput < 0)] = 0
-            Throughput[s, :, br] = thruput.reshape((nnpcs))
+            thruput.append(np.array(recovered_flux[s] / injected_flux))
+            thruput[s][np.where(thruput[s] < 0)] = 0
+            Throughput[s, :, br] = thruput[s].reshape((nnpcs))
         
 
     noise_samp_sm = noise               
     res_lev_samp_sm = np.abs(mean_res)
     
-    BestNInd = np.zeros((TotalSteps))
+    BestNInd = np.zeros((TotalSteps), dtype=int)
     
     Thru_Cont = np.zeros((TotalSteps, nnpcs, 2))
     
@@ -1046,37 +1048,44 @@ def contrast_step_pca_ann(
     #THRESHOLD ON THROUGHPUT + if all contr = infinite at that step, take avg...
     for s in range(0, TotalSteps, 1):
         indices = np.where(Thru_Cont[s, :, 0] >= through_thresh)[0]
-        if Thru_Cont[s, indices, 1] == np.inf:
-            BestNInd[s] = None  
+        for i in range(0, nnpcs, 1):
+            if Thru_Cont[s, i, 1] != np.inf:
+                break
+            BestNInd[s] = -1
+            continue
+        if indices.shape[0] == 0:
+            BestNInd[s] = -1
             continue
         Min_ind = indices[np.argmin(Thru_Cont[s, indices, 1])]
         BestNInd[s] = Min_ind
     
-    AvgN = int(np.mean(ncomp[BestNInd[np.where(BestNInd != None)[0]]]))
+    
+    ncomp = np.array(ncomp)
+    AvgN = int(np.mean(BestNInd[np.where(BestNInd != -1)]))
     #AvgN = int(np.nanmean(BestNInd))
-    BestNInd[np.where(BestNInd == None)[0]] = AvgN
+    BestNInd[np.where(BestNInd == -1)[0]] = AvgN
     BestComp = ncomp[BestNInd]
     
     final_no_fc = np.zeros((NbrImages, SizeImage, SizeImage), dtype = float)
     final_fc = np.zeros((nbranch, NbrImages, SizeImage, SizeImage), dtype = float)
     for s in range(0, TotalSteps, 1):
-        final_no_fc[s*step:(s+1)*step,:,:] = res_cube_no_fc[BestNInd[s]:s*step:(s+1)*step,:,:]
+        final_no_fc[s*step:(s+1)*step,:,:] = res_cube_no_fc[BestNInd[s],s*step:(s+1)*step,:,:]
         for br in range(0, nbranch):
             final_fc[br,s*step:(s+1)*step,:,:] = res_cube_fc[BestNInd[s],br,s*step:(s+1)*step,:,:]
     
     final_frame = np.median(final_no_fc, axis = 0)
-    final_frames_br = np.array([np.median(final_fc[br,:,:,:], axis = 1) 
+    final_frames_br = np.array([np.median(final_fc[br,:,:,:], axis = 0) 
                                             for br in range(0, nbranch)])
     
     final_noise, final_mean_res = noise_dist(final_frame, 
                                     rad_dist, fwhm_med, wedge, False, debug)
     
     final_recovered_fluxes = np.array([apertureOne_flux(
-        (final_frames_br[br, :, :] - final_frame), fcy, fcx, fwhm_med) 
+        (final_frames_br[br, :, :] - final_frame), loc[br][0], loc[br][1], fwhm_med) 
                                             for br in range(0, nbranch)])
     
-    final_thruput = (np.array(final_recovered_fluxes / injected_flux))
-    final_thruput[np.where(thruput < 0)] = 0
+    final_thruput = np.array(final_recovered_fluxes / injected_flux)
+    final_thruput[np.where(final_thruput < 0)] = 0
     final_result = np.zeros((2))
     final_result[0] = np.nanmean(final_thruput)
     
@@ -1089,7 +1098,7 @@ def contrast_step_pca_ann(
             (sigma * final_noise + final_mean_res) / final_result[0]
         ) / np.median(starphot)
         
-    return (final_result, final_frame, final_frames_br)
+    return (BestComp, final_result, final_frame, final_frames_br, frames_fc)
 
 
 
