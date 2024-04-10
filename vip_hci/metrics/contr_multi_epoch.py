@@ -759,6 +759,340 @@ def contr_dist(
 
 
 
+def contrast_step_pca_ann(
+    cube,
+    angle_list,
+    psf_template,
+    fwhm,
+    distance,
+    pxscale,
+    starphot,
+    algo,
+    step,
+    through_thresh=0.1,
+    sigma=5,
+    nbranch=1,
+    theta=0,
+    inner_rad=1,
+    fc_rad_sep=3,
+    noise_sep=1,
+    wedge=(0, 360),
+    fc_snr=20,
+    student=True,
+    transmission=None,
+    dpi=vip_figdpi,
+    debug=False,
+    verbose=True,
+    full_output=False,
+    save_plot=None,
+    object_name=None,
+    frame_size=None,
+    fix_y_lim=(),
+    figsize=vip_figsize,
+    algo_class=None,
+    matrix_adi_ref=None,
+    angle_adi_ref=None,
+    **algo_dict,
+):
+    if cube.ndim != 3 and cube.ndim != 4:
+        raise TypeError("The input array is not a 3d or 4d cube")
+    if cube.ndim == 3 and (cube.shape[0] != angle_list.shape[0]):
+        raise TypeError("Input parallactic angles vector has wrong length")
+    if cube.ndim == 4 and (cube.shape[1] != angle_list.shape[0]):
+        raise TypeError("Input parallactic angles vector has wrong length")
+    if cube.ndim == 3 and psf_template.ndim != 2:
+        raise TypeError("Template PSF is not a frame (for ADI case)")
+    if cube.ndim == 4 and psf_template.ndim != 3:
+        raise TypeError("Template PSF is not a cube (for ADI+IFS case)")
+    if transmission is not None:
+        if len(transmission) != 2 and len(transmission) != cube.shape[0] + 1:
+            msg = "Wrong shape for transmission should be 2xn_rad or (nch+1) "
+            msg += "x n_rad, instead of {}".format(transmission.shape)
+            raise TypeError(msg)
+
+    if isinstance(fwhm, (np.ndarray, list)):
+        fwhm_med = np.median(fwhm)
+    else:
+        fwhm_med = fwhm
+
+    if verbose:
+        start_time = time_ini()
+        if isinstance(starphot, float) or isinstance(starphot, int):
+            msg0 = "ALGO : {}, FWHM = {}, # BRANCHES = {}, SIGMA = {},"
+            msg0 += " STARPHOT = {}"
+            print(msg0.format(algo.__name__, fwhm_med, nbranch, sigma, starphot))
+        else:
+            msg0 = "ALGO : {}, FWHM = {}, # BRANCHES = {}, SIGMA = {}"
+            print(msg0.format(algo.__name__, fwhm_med, nbranch, sigma))
+            
+    if cube.ndim != 3 and cube.ndim != 4:
+        raise TypeError("The input array is not a 3d or 4d cube")
+
+    else:
+        if psf_template.shape[1] % 2 == 0:
+            raise ValueError("Only odd-sized PSF is accepted")
+        if not hasattr(algo, "__call__"):
+            raise TypeError("Parameter `algo` must be a callable function")
+        if not isinstance(inner_rad, int):
+            raise TypeError("inner_rad must be an integer")
+        angular_range = wedge[1] - wedge[0]
+        if nbranch > 1 and angular_range < 360:
+            msg = "Only a single branch is allowed when working on a wedge"
+            raise RuntimeError(msg)
+        
+    nproc = algo_dict.get("nproc", 1)
+    imlib = algo_dict.get("imlib", "vip-fft")
+    interpolation = algo_dict.get("interpolation", "lanczos4")
+    scaling = algo_dict.get("scaling", None)
+    ncomp = algo_dict.get("ncomp")
+    
+    if cube.ndim == 3:
+        if isinstance(ncomp, list):
+            nnpcs = len(ncomp)
+        elif isinstance(ncomp, tuple):
+            if isinstance(ncomp[1], list):
+                nnpcs = len(ncomp[1])
+            else:
+                nnpcs = 1
+        else:
+            nnpcs = 1
+    elif cube.ndim == 4:
+        if isinstance(ncomp, list):
+            if len(ncomp) == cube.shape[0]:
+                nnpcs = 1
+            else:
+                nnpcs = len(ncomp)
+        else:
+            nnpcs = 1
+        
+    SizeImage = int(cube[0].shape[1])
+    NbrImages = int(cube.shape[0])
+    if NbrImages % step != 0:
+        raise ValueError("Number of images must be divisible by the step")
+    TotalSteps = int(NbrImages/step)
+    
+    frames_fc = np.zeros((nnpcs, nbranch, SizeImage, SizeImage), dtype = float)
+    frames_no_fc = np.zeros((nnpcs, SizeImage, SizeImage), dtype = float)
+    res_cube_fc = np.zeros((nnpcs, nbranch, NbrImages, SizeImage, SizeImage), dtype = float)
+    res_cube_no_fc = np.zeros((nnpcs, NbrImages, SizeImage, SizeImage), dtype = float)
+    
+    rad_dist = distance * fwhm
+    
+    if isinstance(fwhm, (np.ndarray, list)):
+        fwhm_med = np.median(fwhm)
+    else:
+        fwhm_med = fwhm
+
+    if verbose:
+        start_time = time_ini()
+        
+    algo_name = algo.__name__
+    idx = algo.__module__.index('.', algo.__module__.index('.') + 1)
+    mod = algo.__module__[:idx]
+    tmp = __import__(mod, fromlist=[algo_name.upper()+'_Params'])    
+    algo_params = getattr(tmp, algo_name.upper()+'_Params')
+    
+    if matrix_adi_ref is not None:
+        if 'cube_ref' in algo_dict.keys() and algo_dict['cube_ref'] is not None:
+            NAdiRef = algo_dict['cube_ref'].shape[0]
+            algo_dict['cube_ref'] = np.vstack((algo_dict['cube_ref'], matrix_adi_ref))
+        else:
+            NAdiRef = 0
+            algo_dict['cube_ref'] = matrix_adi_ref
+        NRefT = algo_dict['cube_ref'].shape[0]
+    
+    if algo_name == "pca_annular":
+        _, res_cube_no_fc[:, :, :, :], frames_no_fc[:, :, :] = algo(
+                        cube=cube, angle_list=angle_list, fwhm=fwhm_med,
+                        verbose=verbose, full_output = True, **algo_dict)
+    else:
+        raise ValueError("Algorithm not supported")
+
+    
+    #CHANGE NOISE ANNULI TO HAVE IT ONLY HERE AT THIS DISTANCE !!!
+    noise_res = []
+    noise = []
+    mean_res = []
+    noise_avg = [noise_dist(frames_no_fc[i, :, :], rad_dist, fwhm_med, wedge, 
+                        False, debug) for i in range(0, nnpcs)]
+    for s in range(0, TotalSteps, 1):
+        noise_res.append(np.array([noise_dist(res_cube_no_fc[i, s*step:(s+1)*step:1, :, :], 
+                            rad_dist, fwhm_med, wedge, False, debug) 
+                            for i in range(0, nnpcs)]))
+        noise.append(np.array(noise_res[s]))[:, 0]
+        mean_res.append(np.array(noise_res[s]))[:, 1]
+    
+    
+    # We crop the PSF and check if PSF has been normalized (so that flux in
+    # 1*FWHM aperture = 1) and fix if needed
+    new_psf_size = int(round(3 * fwhm_med))
+    if new_psf_size % 2 == 0:
+        new_psf_size += 1
+    
+    n, y, x = cube.shape
+    psf_template = normalize_psf(
+        psf_template,
+        fwhm=fwhm,
+        verbose=verbose,
+        size=min(new_psf_size, psf_template.shape[1]),
+    )
+    
+    
+    # Initialize the fake companions
+    angle_branch = angular_range / nbranch
+    Throughput = np.zeros((TotalSteps, nnpcs, nbranch))
+    fc_map = np.zeros((nbranch, y, x))
+    cy, cx = frame_center(cube[0])
+    parangles = angle_list
+
+    # each branch is computed separately
+    if matrix_adi_ref is not None:
+        copy_ref = np.copy(algo_dict['cube_ref'])
+        
+    for br in range(nbranch):
+        
+        if matrix_adi_ref is not None:
+            algo_dict['cube_ref'] = np.copy(copy_ref)
+        
+        # each pattern is computed separately. For each one the companions
+        # are separated by "fc_rad_sep * fwhm", interleaving the injections
+        fc_map = np.ones_like(cube[0]) * 1e-6
+        fcy = 0
+        fcx = 0
+        flux = fc_snr * np.min(noise_avg)
+        
+        if matrix_adi_ref is None:
+            cube_fc = cube.copy()
+        else:
+            cube_fc = cube.copy()
+            cube_adi_fc = np.copy(algo_dict['cube_ref'][NAdiRef:NRefT, :, :])
+            cube_fc = np.vstack((cube_fc, cube_adi_fc))
+            parangles = np.concatenate((angle_list, angle_adi_ref))
+        
+        cube_fc = cube_inject_companions(
+            cube_fc,
+            psf_template,
+            parangles,
+            flux,
+            rad_dists=rad_dist,
+            theta=br * angle_branch + theta,
+            nproc=nproc,
+            imlib=imlib,
+            interpolation=interpolation,
+            verbose=False,
+            )
+        
+        if matrix_adi_ref is not None:
+            algo_dict['cube_ref'][NAdiRef:NRefT, :, :] = cube_fc[n:, :, :]
+            cube_fc = cube_fc[0:n, :, :]
+            
+        
+        y = cy + rad_dist * \
+            np.sin(np.deg2rad(br * angle_branch + theta))
+        x = cx + rad_dist * \
+            np.cos(np.deg2rad(br * angle_branch + theta))
+        fc_map = frame_inject_companion(
+            fc_map, psf_template, y, x, flux, imlib, interpolation
+        )
+        fcy = y
+        fcx = x
+
+        if verbose:
+            msg2 = "Fake companions injected in branch {} "
+            print(msg2.format(br + 1))
+            timing(start_time)
+    
+        _, res_cube_fc[:, : ,:, :], frames_fc[:, br, :, :] = algo(cube=cube_fc, 
+                    angle_list=angle_list, fwhm=fwhm_med, verbose=verbose, 
+                    full_output = True, **algo_dict)
+        
+        injected_flux = apertureOne_flux(fc_map, fcy, fcx, fwhm_med)
+        recovered_flux_avg = np.array([apertureOne_flux(
+            (frames_fc[i, br, :, :] - frames_no_fc[i, :, :]), fcy, fcx, fwhm_med
+        ) for i in range(0, nnpcs)])
+        
+        recovered_flux = []
+        thruput = []
+        for s in range(0, TotalSteps, 1):
+            frame_step_no_fc = np.median(res_cube_no_fc[:, s*step:(s+1)*step, :, :], axis = 1)
+            frame_step_fc = np.median(res_cube_fc[:, br, s*step:(s+1)*step, :, :], axis = 2)
+            recovered_flux.append(np.array([apertureOne_flux(
+                (frame_step_fc[i, br, :, :] - frame_step_no_fc[i, :, :]), fcy, fcx, fwhm_med
+            ) for i in range(0, nnpcs)]))
+            thruput.append(np.array(recovered_flux / injected_flux))
+            thruput[s][np.where(thruput < 0)] = 0
+            Throughput[s, :, br] = thruput.reshape((nnpcs))
+        
+
+    noise_samp_sm = noise               
+    res_lev_samp_sm = np.abs(mean_res)
+    
+    BestNInd = np.zeros((TotalSteps))
+    
+    Thru_Cont = np.zeros((TotalSteps, nnpcs, 2))
+    
+    for s in range(0, TotalSteps, 1):
+        Thru_Cont[s,:,0] = [np.nanmean(Throughput[s,i,:]) for i in range(0, nnpcs)]
+        if isinstance(starphot, float) or isinstance(starphot, int):
+            Thru_Cont[s,:,1] = (
+                (sigma * noise_samp_sm[s] + res_lev_samp_sm[s]) / Thru_Cont[s,:,0]
+            ) / starphot
+        else:
+            Thru_Cont[s,:,1] = (
+                (sigma * noise_samp_sm[s] + res_lev_samp_sm[s]) / Thru_Cont[s,:,0]
+            ) / np.median(starphot)
+
+    #SELECT BEST COMP FOR EACH STEP
+    #THRESHOLD ON THROUGHPUT + if all contr = infinite at that step, take avg...
+    for s in range(0, TotalSteps, 1):
+        indices = np.where(Thru_Cont[s, :, 0] >= through_thresh)[0]
+        if Thru_Cont[s, indices, 1] == np.inf:
+            BestNInd[s] = None  
+            continue
+        Min_ind = indices[np.argmin(Thru_Cont[s, indices, 1])]
+        BestNInd[s] = Min_ind
+    
+    AvgN = int(np.mean(ncomp[BestNInd[np.where(BestNInd != None)[0]]]))
+    #AvgN = int(np.nanmean(BestNInd))
+    BestNInd[np.where(BestNInd == None)[0]] = AvgN
+    BestComp = ncomp[BestNInd]
+    
+    final_no_fc = np.zeros((NbrImages, SizeImage, SizeImage), dtype = float)
+    final_fc = np.zeros((nbranch, NbrImages, SizeImage, SizeImage), dtype = float)
+    for s in range(0, TotalSteps, 1):
+        final_no_fc[s*step:(s+1)*step,:,:] = res_cube_no_fc[BestNInd[s]:s*step:(s+1)*step,:,:]
+        for br in range(0, nbranch):
+            final_fc[br,s*step:(s+1)*step,:,:] = res_cube_fc[BestNInd[s],br,s*step:(s+1)*step,:,:]
+    
+    final_frame = np.median(final_no_fc, axis = 0)
+    final_frames_br = np.array([np.median(final_fc[br,:,:,:], axis = 1) 
+                                            for br in range(0, nbranch)])
+    
+    final_noise, final_mean_res = noise_dist(final_frame, 
+                                    rad_dist, fwhm_med, wedge, False, debug)
+    
+    final_recovered_fluxes = np.array([apertureOne_flux(
+        (final_frames_br[br, :, :] - final_frame), fcy, fcx, fwhm_med) 
+                                            for br in range(0, nbranch)])
+    
+    final_thruput = (np.array(final_recovered_fluxes / injected_flux))
+    final_thruput[np.where(thruput < 0)] = 0
+    final_result = np.zeros((2))
+    final_result[0] = np.nanmean(final_thruput)
+    
+    if isinstance(starphot, float) or isinstance(starphot, int):
+        final_result[1] = (
+            (sigma * final_noise + final_mean_res) / final_result[0]
+        ) / starphot
+    else:
+        final_result[1] = (
+            (sigma * final_noise + final_mean_res) / final_result[0]
+        ) / np.median(starphot)
+        
+    return (final_result, final_frame, final_frames_br)
+
+
+
 
 
 def noise_dist(array, distance, fwhm, wedge=(0, 360), verbose=False, debug=False):
