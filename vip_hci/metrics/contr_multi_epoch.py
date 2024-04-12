@@ -867,21 +867,46 @@ def contrast_step_pca_ann(
         
     SizeImage = int(cube[0].shape[1])
     NbrImages = int(cube.shape[0])
-    if NbrImages % step != 0:
-        raise ValueError("Number of images must be divisible by the step")
-    TotalSteps = int(NbrImages/step)
+    
+    if isinstance(step, int):
+        if NbrImages % step != 0:
+            raise ValueError("Number of images must be divisible by the step")
+        step = np.array([step], dtype = int)
+        TotalSteps = NbrImages/step
+    elif isinstance(step, list) or isinstance(step, np.ndarray):
+        step = np.array(step, dtype = int)
+        for i in step:
+            if NbrImages % i != 0:
+                raise ValueError("Number of images must be divisible by all the steps")
+        TotalSteps = NbrImages/step
+    elif step == 'auto':
+        #Find all the divisors of the number of images
+        step = []
+        lim = int(np.sqrt(NbrImages))
+        for i in range(1, lim+1):
+            if NbrImages % i == 0:
+                step.append(i)
+                step.append(NbrImages/i)
+        step = np.array(step, dtype = int)
+        step = np.sort(step)
+        TotalSteps = NbrImages/step
+    else:
+        raise ValueError("Step must be an int, list, numpy array or equal to 'auto'")
+    NbrStepValue = step.shape[0]
+    TotalSteps = TotalSteps.astype(int)
+    
     
     frames_fc = np.zeros((nnpcs, nbranch, SizeImage, SizeImage), dtype = float)
     frames_no_fc = np.zeros((nnpcs, SizeImage, SizeImage), dtype = float)
     res_cube_fc = np.zeros((nnpcs, nbranch, NbrImages, SizeImage, SizeImage), dtype = float)
     res_cube_no_fc = np.zeros((nnpcs, NbrImages, SizeImage, SizeImage), dtype = float)
     
-    rad_dist = distance * fwhm
-    
     if isinstance(fwhm, (np.ndarray, list)):
         fwhm_med = np.median(fwhm)
     else:
         fwhm_med = fwhm
+        
+    rad_dist = distance * fwhm_med
 
     if verbose:
         start_time = time_ini()
@@ -910,17 +935,22 @@ def contrast_step_pca_ann(
 
     
     #CHANGE NOISE ANNULI TO HAVE IT ONLY HERE AT THIS DISTANCE !!!
-    noise_res = []
     noise = []
     mean_res = []
-    noise_avg = [noise_dist(frames_no_fc[i, :, :], rad_dist, fwhm_med, wedge, 
-                        False, debug) for i in range(0, nnpcs)]
-    for s in range(0, TotalSteps, 1):
-        noise_res.append(np.array(
-            [noise_dist(np.median(res_cube_no_fc[i, s*step:(s+1)*step:1, :, :], axis = 0), 
-            rad_dist, fwhm_med, wedge, False, debug) for i in range(0, nnpcs)]))
-        noise.append(np.array(noise_res[s])[:, 0])
-        mean_res.append(np.array(noise_res[s])[:, 1])
+    noise_avg = [noise_dist(frames_no_fc[n, :, :], rad_dist, fwhm_med, wedge, 
+                        False, debug) for n in range(0, nnpcs)]
+    
+    for i, NbrSteps in enumerate(TotalSteps):
+        noise_tmp = []
+        mean_res_tmp = []
+        for s in range(0, NbrSteps, 1):
+            noise_res = np.array(
+                [noise_dist(np.median(res_cube_no_fc[n, s*step[i]:(s+1)*step[i]:1, :, :], axis = 0), 
+                rad_dist, fwhm_med, wedge, False, debug) for n in range(0, nnpcs)])
+            noise_tmp.append(np.array(noise_res)[:, 0])
+            mean_res_tmp.append(np.array(noise_res)[:, 1])
+        noise.append(noise_tmp)
+        mean_res.append(mean_res_tmp)
     
     
     # We crop the PSF and check if PSF has been normalized (so that flux in
@@ -940,7 +970,11 @@ def contrast_step_pca_ann(
     
     # Initialize the fake companions
     angle_branch = angular_range / nbranch
-    Throughput = np.zeros((TotalSteps, nnpcs, nbranch))
+    
+    Throughput = []
+    for NbrSteps in TotalSteps:
+        Throughput.append(np.zeros((NbrSteps, nnpcs, nbranch)))
+    
     fc_map = np.zeros((nbranch, y, x))
     cy, cx = frame_center(cube[0])
     parangles = angle_list
@@ -1010,95 +1044,118 @@ def contrast_step_pca_ann(
         
         injected_flux = apertureOne_flux(fc_map, fcy, fcx, fwhm_med)
         recovered_flux_avg = np.array([apertureOne_flux(
-            (frames_fc[i, br, :, :] - frames_no_fc[i, :, :]), fcy, fcx, fwhm_med
-        ) for i in range(0, nnpcs)])
+            (frames_fc[n, br, :, :] - frames_no_fc[n, :, :]), fcy, fcx, fwhm_med
+        ) for n in range(0, nnpcs)])
         
         recovered_flux = []
         thruput = []
-        for s in range(0, TotalSteps, 1):
-            frame_step_no_fc = np.median(res_cube_no_fc[:, s*step:(s+1)*step, :, :], axis = 1)
-            frame_step_fc = np.median(res_cube_fc[:, br, s*step:(s+1)*step, :, :], axis = 1)
-            recovered_flux.append(np.array([apertureOne_flux(
-                (frame_step_fc[i, :, :] - frame_step_no_fc[i, :, :]), fcy, fcx, fwhm_med
-            ) for i in range(0, nnpcs)]))
-            thruput.append(np.array(recovered_flux[s] / injected_flux))
-            thruput[s][np.where(thruput[s] < 0)] = 0
-            Throughput[s, :, br] = thruput[s].reshape((nnpcs))
-        
+        for i, NbrSteps in enumerate(TotalSteps):
+            recovered_flux_tmp = []
+            thruput_tmp = []
+            for s in range(0, NbrSteps, 1):
+                frame_step_no_fc = np.median(res_cube_no_fc[:, s*step[i]:(s+1)*step[i], :, :], axis = 1)
+                frame_step_fc = np.median(res_cube_fc[:, br, s*step[i]:(s+1)*step[i], :, :], axis = 1)
+                recovered_flux_tmp.append(np.array([apertureOne_flux(
+                    (frame_step_fc[n, :, :] - frame_step_no_fc[n, :, :]), fcy, fcx, fwhm_med
+                ) for n in range(0, nnpcs)]))
+                thruput_tmp.append(np.array(recovered_flux_tmp[s] / injected_flux))
+                thruput_tmp[s][np.where(thruput_tmp[s] < 0)] = 0
+                Throughput[i][s, :, br] = thruput_tmp[s].reshape((nnpcs))
+            thruput.append(thruput_tmp)
+            recovered_flux.append(recovered_flux_tmp)
 
-    noise_samp_sm = noise               
-    res_lev_samp_sm = np.abs(mean_res)
+    noise_samp_sm = noise  
+    res_lev_samp_sm = []
+    for i in range(0, NbrStepValue):           
+        res_lev_samp_sm.append(np.abs(mean_res[i]))
     
-    BestNInd = np.zeros((TotalSteps), dtype=int)
+    BestNInd = []
+    Thru_Cont = []
+    for NbrSteps in TotalSteps:
+        BestNInd.append(np.zeros((NbrSteps), dtype=int))
+        Thru_Cont.append(np.zeros((NbrSteps, nnpcs, 2)))
     
-    Thru_Cont = np.zeros((TotalSteps, nnpcs, 2))
     
-    for s in range(0, TotalSteps, 1):
-        Thru_Cont[s,:,0] = [np.nanmean(Throughput[s,i,:]) for i in range(0, nnpcs)]
-        if isinstance(starphot, float) or isinstance(starphot, int):
-            Thru_Cont[s,:,1] = (
-                (sigma * noise_samp_sm[s] + res_lev_samp_sm[s]) / Thru_Cont[s,:,0]
-            ) / starphot
-        else:
-            Thru_Cont[s,:,1] = (
-                (sigma * noise_samp_sm[s] + res_lev_samp_sm[s]) / Thru_Cont[s,:,0]
-            ) / np.median(starphot)
+    for i, NbrSteps in enumerate(TotalSteps):
+        for s in range(0, NbrSteps, 1):
+            Thru_Cont[i][s,:,0] = [np.nanmean(Throughput[i][s,n,:]) for n in range(0, nnpcs)]
+            if isinstance(starphot, float) or isinstance(starphot, int):
+                Thru_Cont[i][s,:,1] = (
+                    (sigma * noise_samp_sm[i][s] + res_lev_samp_sm[i][s]) / Thru_Cont[i][s,:,0]
+                ) / starphot
+            else:
+                Thru_Cont[i][s,:,1] = (
+                    (sigma * noise_samp_sm[i][s] + res_lev_samp_sm[i][s]) / Thru_Cont[i][s,:,0]
+                ) / np.median(starphot)
+
 
     #SELECT BEST COMP FOR EACH STEP
     #THRESHOLD ON THROUGHPUT + if all contr = infinite at that step, take avg...
-    for s in range(0, TotalSteps, 1):
-        indices = np.where(Thru_Cont[s, :, 0] >= through_thresh)[0]
-        for i in range(0, nnpcs, 1):
-            if Thru_Cont[s, i, 1] != np.inf:
-                break
-            BestNInd[s] = -1
-            continue
-        if indices.shape[0] == 0:
-            BestNInd[s] = -1
-            continue
-        Min_ind = indices[np.argmin(Thru_Cont[s, indices, 1])]
-        BestNInd[s] = Min_ind
+    for i, NbrSteps in enumerate(TotalSteps):
+        for s in range(0, NbrSteps, 1):
+            indices = np.where(Thru_Cont[i][s, :, 0] >= through_thresh)[0]
+            for n in range(0, nnpcs, 1):
+                if Thru_Cont[i][s, n, 1] != np.inf:
+                    break
+                BestNInd[i][s] = -1
+                continue
+            if indices.shape[0] == 0:
+                BestNInd[i][s] = -1
+                continue
+            Min_ind = indices[np.argmin(Thru_Cont[i][s, indices, 1])]
+            BestNInd[i][s] = Min_ind
     
     
     ncomp = np.array(ncomp)
-    AvgN = int(np.mean(BestNInd[np.where(BestNInd != -1)]))
-    #AvgN = int(np.nanmean(BestNInd))
-    BestNInd[np.where(BestNInd == -1)[0]] = AvgN
-    BestComp = ncomp[BestNInd]
+    BestComp = []
+    for i in range(0,NbrStepValue):
+        AvgN = int(np.mean(BestNInd[i][np.where(BestNInd[i] != -1)]))
+        #AvgN = int(np.nanmean(BestNInd))
+        BestNInd[i][np.where(BestNInd[i] == -1)[0]] = AvgN
+        BestComp.append(ncomp[BestNInd[i]])
+        
     
-    final_no_fc = np.zeros((NbrImages, SizeImage, SizeImage), dtype = float)
-    final_fc = np.zeros((nbranch, NbrImages, SizeImage, SizeImage), dtype = float)
-    for s in range(0, TotalSteps, 1):
-        final_no_fc[s*step:(s+1)*step,:,:] = res_cube_no_fc[BestNInd[s],s*step:(s+1)*step,:,:]
-        for br in range(0, nbranch):
-            final_fc[br,s*step:(s+1)*step,:,:] = res_cube_fc[BestNInd[s],br,s*step:(s+1)*step,:,:]
+    #Construct final best frames for all the different step value
+    final_frame = np.zeros((NbrStepValue, SizeImage, SizeImage))
+    final_frames_br = np.zeros((NbrStepValue, nbranch, SizeImage, SizeImage))
+    for i, NbrSteps in enumerate(TotalSteps):
+        final_no_fc = np.zeros((NbrImages, SizeImage, SizeImage), dtype = float)
+        final_fc = np.zeros((nbranch, NbrImages, SizeImage, SizeImage), dtype = float)
+        for s in range(0, NbrSteps, 1):
+            final_no_fc[s*step[i]:(s+1)*step[i],:,:] = res_cube_no_fc[BestNInd[i][s],s*step[i]:(s+1)*step[i],:,:]
+            for br in range(0, nbranch):
+                final_fc[br,s*step[i]:(s+1)*step[i],:,:] = res_cube_fc[BestNInd[i][s],br,s*step[i]:(s+1)*step[i],:,:]
     
-    final_frame = np.median(final_no_fc, axis = 0)
-    final_frames_br = np.array([np.median(final_fc[br,:,:,:], axis = 0) 
+        final_frame[i,:,:] = np.median(final_no_fc[:,:,:], axis = 0)
+        final_frames_br[i,:,:,:] = np.array([np.median(final_fc[br,:,:,:], axis = 0) 
                                             for br in range(0, nbranch)])
     
-    final_noise, final_mean_res = noise_dist(final_frame, 
-                                    rad_dist, fwhm_med, wedge, False, debug)
+    final_noise_res = np.array([noise_dist(final_frame[i], 
+                rad_dist, fwhm_med, wedge, False, debug) for i in range(0,NbrStepValue)])
+    final_noise = np.array(final_noise_res)[:, 0]
+    final_mean_res = np.array(final_noise_res)[:, 1]
     
-    final_recovered_fluxes = np.array([apertureOne_flux(
-        (final_frames_br[br, :, :] - final_frame), loc[br][0], loc[br][1], fwhm_med) 
-                                            for br in range(0, nbranch)])
+    final_recovered_fluxes = np.zeros((NbrStepValue, nbranch))
+    for i in range(0,NbrStepValue):
+        final_recovered_fluxes[i,:] = np.array([apertureOne_flux(
+            (final_frames_br[i, br, :, :] - final_frame[i,:,:]), loc[br][0], loc[br][1], fwhm_med) 
+                                            for br in range(0, nbranch)]).reshape(nbranch)
     
     final_thruput = np.array(final_recovered_fluxes / injected_flux)
     final_thruput[np.where(final_thruput < 0)] = 0
-    final_result = np.zeros((2))
-    final_result[0] = np.nanmean(final_thruput)
-    
-    if isinstance(starphot, float) or isinstance(starphot, int):
-        final_result[1] = (
-            (sigma * final_noise + final_mean_res) / final_result[0]
-        ) / starphot
-    else:
-        final_result[1] = (
-            (sigma * final_noise + final_mean_res) / final_result[0]
-        ) / np.median(starphot)
+    final_result = np.zeros((NbrStepValue, 2))
+    for i in range(0,NbrStepValue):
+        final_result[i, 0] = np.nanmean(final_thruput[i])
+        if isinstance(starphot, float) or isinstance(starphot, int):
+            final_result[i,1] = (
+                (sigma * final_noise[i] + final_mean_res[i]) / final_result[i,0]
+            ) / starphot
+        else:
+            final_result[i,1] = (
+                (sigma * final_noise[i] + final_mean_res[i]) / final_result[i,0]
+            ) / np.median(starphot)
         
-    return (BestComp, final_result, final_frame, final_frames_br, frames_fc)
+    return (step, BestComp, final_result, final_frame, final_frames_br)
 
 
 
