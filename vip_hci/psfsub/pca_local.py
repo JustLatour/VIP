@@ -108,8 +108,9 @@ class PCA_ANNULAR_CORR_Params:
     full_output: bool = False
     verbose: bool = True
     left_eigv: bool = False
-    Step: int = 5
+    step_corr: int = 1
     Mask_Corr: np.ndarray = None
+    max_frames_lib: int = None
     ADI_Fr_Lib: Union[int, List[int]] = None
     RDI_Fr_Lib: Union[int, List[int]] = None
 
@@ -666,6 +667,7 @@ def pca_annular_corr(*all_args: List, **all_kwargs: dict):
         rot_options['mask_val'] = 0
         rot_options['ker'] = 1
         rot_options['interp_zeros'] = True
+        
 
     global start_time
     start_time = time_ini()
@@ -684,11 +686,18 @@ def pca_annular_corr(*all_args: List, **all_kwargs: dict):
     # ADI or ADI+RDI data
     if algo_params.cube.ndim == 3:
         add_params = {"start_time": start_time, "full_output": True}
-
-        func_params = setup_parameters(
-            params_obj=algo_params, fkt=_pca_adi_rdi_corr, **add_params
-        )
-        res = _pca_adi_rdi_corr(**func_params, **rot_options)
+        
+        NbrImages = algo_params.epoch_indices[1]-algo_params.epoch_indices[0]
+        if algo_params.step_corr == 1 and NbrImages == algo_params.cube.shape[0]:
+            func_params = setup_parameters(
+                params_obj=algo_params, fkt=_pca_adi_rdi, **add_params
+            )
+            res = _pca_adi_rdi(**func_params, **rot_options)
+        else:
+            func_params = setup_parameters(
+                params_obj=algo_params, fkt=_pca_adi_rdi_corr, **add_params
+            )
+            res = _pca_adi_rdi_corr(**func_params, **rot_options)
 
         cube_out, cube_der, frame = res
         if algo_params.full_output:
@@ -1191,9 +1200,10 @@ def _pca_adi_rdi_corr(
     ncomp=1,
     svd_mode="lapack",
     nproc=None,
-    Step = 5,
-    ADI_Fr_Lib = 100,
-    RDI_Fr_Lib = 100,
+    step_corr = 1,
+    max_frames_lib = None,
+    ADI_Fr_Lib = None,
+    RDI_Fr_Lib = None,
     tol=1e-1,
     scaling=None,
     imlib="vip-fft",
@@ -1309,7 +1319,7 @@ def _pca_adi_rdi_corr(
             else:
                 matrix_sig_segm = None
                 
-            N_It = int(array.shape[0]/Step)
+            N_It = int(array.shape[0]/step_corr)
 
             if not left_eigv:
                 res = pool_map(
@@ -1320,7 +1330,7 @@ def _pca_adi_rdi_corr(
                     xx,
                     yy,
                     iterable(range(N_It)),
-                    Step,
+                    step_corr,
                     angle_list,
                     fwhm,
                     pa_thr,
@@ -1329,6 +1339,7 @@ def _pca_adi_rdi_corr(
                     asize,
                     svd_mode,
                     ncompann,
+                    max_frames_lib,
                     ADI_Fr_Lib,
                     RDI_Fr_Lib,
                     scaling,
@@ -1524,6 +1535,7 @@ def do_pca_patch_corr(
     asize,
     svd_mode,
     ncomp,
+    max_frames_lib,
     ADI_Fr_Lib,
     RDI_Fr_Lib,
     scaling,
@@ -1572,8 +1584,11 @@ def do_pca_patch_corr(
             pa_limit = pa_range/2 + pa_threshold
             
             index = int((indices_batch[-1]+indices_batch[0])/2)
+            truncate = False
+            if max_frames_lib is not None:
+                truncate = True
             indices_left = _find_indices_adi2(angle_list_adiref, index, 
-                                             pa_limit, truncate=False)
+                        pa_limit, truncate=truncate, max_frames=max_frames_lib)
             matrix_adi = matrix_adi[indices_left, : ,:]
             n_adi = matrix_adi.shape[0]
             #if n_adi < ADI_Fr_Lib:
