@@ -31,8 +31,6 @@ from ..psfsub.pca_local import *
 from ..psfsub.pca_local import PCA_ANNULAR_Params
 from ..psfsub.pca_multi_epoch import *
 
-from hciplot import plot_frames, plot_cubes
-
 def contrast_optimized(
     cube,
     angle_list,
@@ -314,9 +312,7 @@ def contrast_optimized(
             Indices[NEpochs-k-1] += 1
             for j in range(0, k, 1):
                 Indices[NEpochs-j-1] = 0
-        
-        
-        
+    
         
         n, y, x = array.shape
         psf_template = normalize_psf(
@@ -760,413 +756,6 @@ def contr_dist(
 
 
 
-def contrast_step_pca_ann(
-    cube,
-    angle_list,
-    psf_template,
-    fwhm,
-    distance,
-    pxscale,
-    starphot,
-    algo,
-    step,
-    through_thresh=0.1,
-    sigma=5,
-    nbranch=1,
-    theta=0,
-    inner_rad=1,
-    fc_rad_sep=3,
-    noise_sep=1,
-    wedge=(0, 360),
-    fc_snr=20,
-    student=True,
-    transmission=None,
-    dpi=vip_figdpi,
-    debug=False,
-    verbose=True,
-    full_output=False,
-    save_plot=None,
-    object_name=None,
-    frame_size=None,
-    fix_y_lim=(),
-    figsize=vip_figsize,
-    algo_class=None,
-    matrix_adi_ref=None,
-    angle_adi_ref=None,
-    **algo_dict,
-):
-    if cube.ndim != 3 and cube.ndim != 4:
-        raise TypeError("The input array is not a 3d or 4d cube")
-    if cube.ndim == 3 and (cube.shape[0] != angle_list.shape[0]):
-        raise TypeError("Input parallactic angles vector has wrong length")
-    if cube.ndim == 4 and (cube.shape[1] != angle_list.shape[0]):
-        raise TypeError("Input parallactic angles vector has wrong length")
-    if cube.ndim == 3 and psf_template.ndim != 2:
-        raise TypeError("Template PSF is not a frame (for ADI case)")
-    if cube.ndim == 4 and psf_template.ndim != 3:
-        raise TypeError("Template PSF is not a cube (for ADI+IFS case)")
-    if transmission is not None:
-        if len(transmission) != 2 and len(transmission) != cube.shape[0] + 1:
-            msg = "Wrong shape for transmission should be 2xn_rad or (nch+1) "
-            msg += "x n_rad, instead of {}".format(transmission.shape)
-            raise TypeError(msg)
-
-    if isinstance(fwhm, (np.ndarray, list)):
-        fwhm_med = np.median(fwhm)
-    else:
-        fwhm_med = fwhm
-
-    if verbose:
-        start_time = time_ini()
-        if isinstance(starphot, float) or isinstance(starphot, int):
-            msg0 = "ALGO : {}, FWHM = {}, # BRANCHES = {}, SIGMA = {},"
-            msg0 += " STARPHOT = {}"
-            print(msg0.format(algo.__name__, fwhm_med, nbranch, sigma, starphot))
-        else:
-            msg0 = "ALGO : {}, FWHM = {}, # BRANCHES = {}, SIGMA = {}"
-            print(msg0.format(algo.__name__, fwhm_med, nbranch, sigma))
-            
-    if cube.ndim != 3 and cube.ndim != 4:
-        raise TypeError("The input array is not a 3d or 4d cube")
-
-    else:
-        if psf_template.shape[1] % 2 == 0:
-            raise ValueError("Only odd-sized PSF is accepted")
-        if not hasattr(algo, "__call__"):
-            raise TypeError("Parameter `algo` must be a callable function")
-        if not isinstance(inner_rad, int):
-            raise TypeError("inner_rad must be an integer")
-        angular_range = wedge[1] - wedge[0]
-        if nbranch > 1 and angular_range < 360:
-            msg = "Only a single branch is allowed when working on a wedge"
-            raise RuntimeError(msg)
-        
-    nproc = algo_dict.get("nproc", 1)
-    imlib = algo_dict.get("imlib", "vip-fft")
-    interpolation = algo_dict.get("interpolation", "lanczos4")
-    scaling = algo_dict.get("scaling", None)
-    ncomp = algo_dict.get("ncomp")
-    
-    if cube.ndim == 3:
-        if isinstance(ncomp, list):
-            nnpcs = len(ncomp)
-        elif isinstance(ncomp, tuple):
-            if isinstance(ncomp[1], list):
-                nnpcs = len(ncomp[1])
-            else:
-                nnpcs = 1
-        else:
-            nnpcs = 1
-    elif cube.ndim == 4:
-        if isinstance(ncomp, list):
-            if len(ncomp) == cube.shape[0]:
-                nnpcs = 1
-            else:
-                nnpcs = len(ncomp)
-        else:
-            nnpcs = 1
-        
-    SizeImage = int(cube[0].shape[1])
-    NbrImages = int(cube.shape[0])
-    
-    if isinstance(step, int):
-        if NbrImages % step != 0:
-            raise ValueError("Number of images must be divisible by the step")
-        step = np.array([step], dtype = int)
-        TotalSteps = NbrImages/step
-    elif isinstance(step, list) or isinstance(step, np.ndarray):
-        step = np.array(step, dtype = int)
-        for i in step:
-            if NbrImages % i != 0:
-                raise ValueError("Number of images must be divisible by all the steps")
-        TotalSteps = NbrImages/step
-    elif step == 'auto':
-        #Find all the divisors of the number of images
-        step = []
-        lim = int(np.sqrt(NbrImages))
-        for i in range(1, lim+1):
-            if NbrImages % i == 0:
-                step.append(i)
-                step.append(NbrImages/i)
-        step = np.array(step, dtype = int)
-        step = np.sort(step)
-        TotalSteps = NbrImages/step
-    else:
-        raise ValueError("Step must be an int, list, numpy array or equal to 'auto'")
-    NbrStepValue = step.shape[0]
-    TotalSteps = TotalSteps.astype(int)
-    
-    
-    frames_fc = np.zeros((nnpcs, nbranch, SizeImage, SizeImage), dtype = float)
-    frames_no_fc = np.zeros((nnpcs, SizeImage, SizeImage), dtype = float)
-    res_cube_fc = np.zeros((nnpcs, nbranch, NbrImages, SizeImage, SizeImage), dtype = float)
-    res_cube_no_fc = np.zeros((nnpcs, NbrImages, SizeImage, SizeImage), dtype = float)
-    
-    if isinstance(fwhm, (np.ndarray, list)):
-        fwhm_med = np.median(fwhm)
-    else:
-        fwhm_med = fwhm
-
-    if verbose:
-        start_time = time_ini()
-        
-    algo_name = algo.__name__
-    idx = algo.__module__.index('.', algo.__module__.index('.') + 1)
-    mod = algo.__module__[:idx]
-    tmp = __import__(mod, fromlist=[algo_name.upper()+'_Params'])    
-    algo_params = getattr(tmp, algo_name.upper()+'_Params')
-    
-    if matrix_adi_ref is not None:
-        if 'cube_ref' in algo_dict.keys() and algo_dict['cube_ref'] is not None:
-            NAdiRef = algo_dict['cube_ref'].shape[0]
-            algo_dict['cube_ref'] = np.vstack((algo_dict['cube_ref'], matrix_adi_ref))
-        else:
-            NAdiRef = 0
-            algo_dict['cube_ref'] = matrix_adi_ref
-        NRefT = algo_dict['cube_ref'].shape[0]
-    
-    if algo_name == "pca_annular":
-        _, res_cube_no_fc[:, :, :, :], frames_no_fc[:, :, :] = algo(
-                        cube=cube, angle_list=angle_list, fwhm=fwhm_med,
-                        verbose=verbose, full_output = True, **algo_dict)
-    else:
-        raise ValueError("Algorithm not supported")
-        
-    
-    rad_dist = distance * fwhm_med
-
-    
-    #CHANGE NOISE ANNULI TO HAVE IT ONLY HERE AT THIS DISTANCE !!!
-    noise = []
-    mean_res = []
-    noise_avg = [noise_dist(frames_no_fc[n, :, :], rad_dist, fwhm_med, wedge, 
-                        False, debug) for n in range(0, nnpcs)]
-    print(noise_avg)
-    
-    for i, NbrSteps in enumerate(TotalSteps):
-        noise_tmp = []
-        mean_res_tmp = []
-        for s in range(0, NbrSteps, 1):
-            noise_res = np.array(
-                [noise_dist(np.median(res_cube_no_fc[n, s*step[i]:(s+1)*step[i]:1, :, :], axis = 0), 
-                rad_dist, fwhm_med, wedge, False, debug) for n in range(0, nnpcs)])
-            noise_tmp.append(np.array(noise_res)[:, 0, 0])
-            mean_res_tmp.append(np.array(noise_res)[:, 0, 1])
-        noise.append(noise_tmp)
-        mean_res.append(mean_res_tmp)
-    
-    
-    # We crop the PSF and check if PSF has been normalized (so that flux in
-    # 1*FWHM aperture = 1) and fix if needed
-    new_psf_size = int(round(3 * fwhm_med))
-    if new_psf_size % 2 == 0:
-        new_psf_size += 1
-    
-    n, y, x = cube.shape
-    psf_template = normalize_psf(
-        psf_template,
-        fwhm=fwhm,
-        verbose=verbose,
-        size=min(new_psf_size, psf_template.shape[1]),
-    )
-    
-    
-    # Initialize the fake companions
-    angle_branch = angular_range / nbranch
-    
-    Throughput = []
-    for NbrSteps in TotalSteps:
-        Throughput.append(np.zeros((NbrSteps, nnpcs, nbranch)))
-    
-    fc_map = np.zeros((nbranch, y, x))
-    cy, cx = frame_center(cube[0])
-    parangles = angle_list
-
-    # each branch is computed separately
-    if matrix_adi_ref is not None:
-        copy_ref = np.copy(algo_dict['cube_ref'])
-        
-    loc = []
-    for br in range(nbranch):
-        
-        if matrix_adi_ref is not None:
-            algo_dict['cube_ref'] = np.copy(copy_ref)
-        
-        # each pattern is computed separately. For each one the companions
-        # are separated by "fc_rad_sep * fwhm", interleaving the injections
-        fc_map = np.ones_like(cube[0]) * 1e-6
-        fcy = 0
-        fcx = 0
-        flux = fc_snr * np.min(np.array(noise_avg)[:, 0, 0])
-        print(flux)
-        
-        if matrix_adi_ref is None:
-            cube_fc = cube.copy()
-        else:
-            cube_fc = cube.copy()
-            cube_adi_fc = np.copy(algo_dict['cube_ref'][NAdiRef:NRefT, :, :])
-            cube_fc = np.vstack((cube_fc, cube_adi_fc))
-            parangles = np.concatenate((angle_list, angle_adi_ref))
-        
-        cube_fc = cube_inject_companions(
-            cube_fc,
-            psf_template,
-            parangles,
-            flux,
-            rad_dists=rad_dist,
-            theta=br * angle_branch + theta,
-            nproc=nproc,
-            imlib=imlib,
-            interpolation=interpolation,
-            verbose=False,
-            )
-        
-        if matrix_adi_ref is not None:
-            algo_dict['cube_ref'][NAdiRef:NRefT, :, :] = cube_fc[n:, :, :]
-            cube_fc = cube_fc[0:n, :, :]
-            
-        
-        y = cy + rad_dist * \
-            np.sin(np.deg2rad(br * angle_branch + theta))
-        x = cx + rad_dist * \
-            np.cos(np.deg2rad(br * angle_branch + theta))
-        fc_map = frame_inject_companion(
-            fc_map, psf_template, y, x, flux, imlib, interpolation
-        )
-        fcy = y
-        fcx = x
-        loc.append((fcy, fcx))
-
-        if verbose:
-            msg2 = "Fake companions injected in branch {} "
-            print(msg2.format(br + 1))
-            timing(start_time)
-    
-        _, res_cube_fc[:, br, : ,:, :], frames_fc[:, br, :, :] = algo(cube=cube_fc, 
-                    angle_list=angle_list, fwhm=fwhm_med, verbose=verbose, 
-                    full_output = True, **algo_dict)
-        
-        injected_flux = apertureOne_flux(fc_map, fcy, fcx, fwhm_med)
-        print(injected_flux)
-        recovered_flux_avg = np.array([apertureOne_flux(
-            (frames_fc[n, br, :, :] - frames_no_fc[n, :, :]), fcy, fcx, fwhm_med
-        ) for n in range(0, nnpcs)])
-        
-        recovered_flux = []
-        thruput = []
-        for i, NbrSteps in enumerate(TotalSteps):
-            recovered_flux_tmp = []
-            thruput_tmp = []
-            for s in range(0, NbrSteps, 1):
-                frame_step_no_fc = np.median(res_cube_no_fc[:, s*step[i]:(s+1)*step[i], :, :], axis = 1)
-                frame_step_fc = np.median(res_cube_fc[:, br, s*step[i]:(s+1)*step[i], :, :], axis = 1)
-                recovered_flux_tmp.append(np.array([apertureOne_flux(
-                    (frame_step_fc[n, :, :] - frame_step_no_fc[n, :, :]), fcy, fcx, fwhm_med
-                ) for n in range(0, nnpcs)]))
-                thruput_tmp.append(np.array(recovered_flux_tmp[s] / injected_flux))
-                thruput_tmp[s][np.where(thruput_tmp[s] < 0)] = 0
-                Throughput[i][s, :, br] = thruput_tmp[s].reshape((nnpcs))
-            thruput.append(thruput_tmp)
-            recovered_flux.append(recovered_flux_tmp)
-
-    print(loc)
-
-    noise_samp_sm = noise  
-    res_lev_samp_sm = []
-    for i in range(0, NbrStepValue):           
-        res_lev_samp_sm.append(np.abs(mean_res[i]))
-    
-    BestNInd = []
-    Thru_Cont = []
-    for NbrSteps in TotalSteps:
-        BestNInd.append(np.zeros((NbrSteps), dtype=int))
-        Thru_Cont.append(np.zeros((NbrSteps, nnpcs, 2)))
-    
-    
-    for i, NbrSteps in enumerate(TotalSteps):
-        for s in range(0, NbrSteps, 1):
-            Thru_Cont[i][s,:,0] = [np.nanmean(Throughput[i][s,n,:]) for n in range(0, nnpcs)]
-            if isinstance(starphot, float) or isinstance(starphot, int):
-                Thru_Cont[i][s,:,1] = (
-                    (sigma * noise_samp_sm[i][s] + res_lev_samp_sm[i][s]) / Thru_Cont[i][s,:,0]
-                ) / starphot
-            else:
-                Thru_Cont[i][s,:,1] = (
-                    (sigma * noise_samp_sm[i][s] + res_lev_samp_sm[i][s]) / Thru_Cont[i][s,:,0]
-                ) / np.median(starphot)
-
-
-    #SELECT BEST COMP FOR EACH STEP
-    #THRESHOLD ON THROUGHPUT + if all contr = infinite at that step, take avg...
-    for i, NbrSteps in enumerate(TotalSteps):
-        for s in range(0, NbrSteps, 1):
-            indices = np.where(Thru_Cont[i][s, :, 0] >= through_thresh)[0]
-            for n in range(0, nnpcs, 1):
-                if Thru_Cont[i][s, n, 1] != np.inf:
-                    break
-                BestNInd[i][s] = -1
-                continue
-            if indices.shape[0] == 0:
-                BestNInd[i][s] = -1
-                continue
-            Min_ind = indices[np.argmin(Thru_Cont[i][s, indices, 1])]
-            BestNInd[i][s] = Min_ind
-    
-    
-    ncomp = np.array(ncomp)
-    BestComp = []
-    for i in range(0,NbrStepValue):
-        AvgN = int(np.mean(BestNInd[i][np.where(BestNInd[i] != -1)]))
-        #AvgN = int(np.nanmean(BestNInd))
-        BestNInd[i][np.where(BestNInd[i] == -1)[0]] = AvgN
-        BestComp.append(ncomp[BestNInd[i]])
-        
-    
-    #Construct final best frames for all the different step value
-    final_frame = np.zeros((NbrStepValue, SizeImage, SizeImage))
-    final_frames_br = np.zeros((NbrStepValue, nbranch, SizeImage, SizeImage))
-    for i, NbrSteps in enumerate(TotalSteps):
-        final_no_fc = np.zeros((NbrImages, SizeImage, SizeImage), dtype = float)
-        final_fc = np.zeros((nbranch, NbrImages, SizeImage, SizeImage), dtype = float)
-        for s in range(0, NbrSteps, 1):
-            final_no_fc[s*step[i]:(s+1)*step[i],:,:] = res_cube_no_fc[BestNInd[i][s],s*step[i]:(s+1)*step[i],:,:]
-            for br in range(0, nbranch):
-                final_fc[br,s*step[i]:(s+1)*step[i],:,:] = res_cube_fc[BestNInd[i][s],br,s*step[i]:(s+1)*step[i],:,:]
-    
-        final_frame[i,:,:] = np.median(final_no_fc[:,:,:], axis = 0)
-        final_frames_br[i,:,:,:] = np.array([np.median(final_fc[br,:,:,:], axis = 0) 
-                                            for br in range(0, nbranch)])
-    
-    final_noise_res = np.array([noise_dist(final_frame[i], 
-                rad_dist, fwhm_med, wedge, False, debug) for i in range(0,NbrStepValue)])
-    final_noise = np.array(final_noise_res)[:, 0, 0]
-    final_mean_res = np.array(final_noise_res)[:, 0, 1]
-    
-    final_recovered_fluxes = np.zeros((NbrStepValue, nbranch))
-    for i in range(0,NbrStepValue):
-        final_recovered_fluxes[i,:] = np.array([apertureOne_flux(
-            (final_frames_br[i, br, :, :] - final_frame[i,:,:]), loc[br][0], loc[br][1], fwhm_med) 
-                                            for br in range(0, nbranch)]).reshape(nbranch)
-    
-    final_thruput = np.array(final_recovered_fluxes / injected_flux)
-    final_thruput[np.where(final_thruput < 0)] = 0
-    final_result = np.zeros((NbrStepValue, 2))
-    for i in range(0,NbrStepValue):
-        final_result[i, 0] = np.nanmean(final_thruput[i])
-        if isinstance(starphot, float) or isinstance(starphot, int):
-            final_result[i,1] = (
-                (sigma * final_noise[i] + final_mean_res[i]) / final_result[i,0]
-            ) / starphot
-        else:
-            final_result[i,1] = (
-                (sigma * final_noise[i] + final_mean_res[i]) / final_result[i,0]
-            ) / np.median(starphot)
-        
-    return (step, BestComp, final_result, final_frame, final_frames_br)
-
-
-
-
 def contrast_step_dist(
     cube,
     angle_list,
@@ -1202,6 +791,28 @@ def contrast_step_dist(
     angle_adi_ref=None,
     **algo_dict,
 ):
+    """
+    Estimates the contrast in much the same way contrast_curve does it, but
+    only at specific distances provided by the argument 'distance'.
+    
+    -ncomp: must be list of components that will be tested
+    
+    -distance:Provides the distances(in fwhm) at which the fake companions will
+    be injected. Attention: to limit computational cost, all companions at the 
+    different distances will be injected at once. In order to have the most
+    accurate estimation of the contrast, these companions should not be in
+    the same annulus.
+    If distance = 'auto': the distances are automatically calculated to be the
+    centers of the annuli in the images if the algorithm used has annuli
+    
+    -step:in addition to calculating the optimal contrast for each value of ncomp,
+    the optimization of the contrast can be done by segmenting the cube in steps.
+    The number of images must be divisible by the step
+    
+    -through_thresh:to select the optimal component, a threshold on the 
+    throuput can be used to prevent components with throughputs too low from
+    being selected
+    """
     if cube.ndim != 3 and cube.ndim != 4:
         raise TypeError("The input array is not a 3d or 4d cube")
     if cube.ndim == 3 and (cube.shape[0] != angle_list.shape[0]):
@@ -1476,6 +1087,9 @@ def contrast_step_dist(
         recovered_flux_avg = np.array([apertureOne_flux(
             (frames_fc[n, br, :, :] - frames_no_fc[n, :, :]), loc[:,br,0], loc[:,br,1], fwhm_med
         ) for n in range(0, nnpcs)])
+        thruput_avg = np.zeros((nnpcs, nbr_dist))
+        for d in range(0, nbr_dist):
+            thruput_avg[:,d] = recovered_flux_avg[:,d]/injected_flux[d]
         
         recovered_flux = []
         thruput = []
@@ -1571,7 +1185,7 @@ def contrast_step_dist(
         final_noise_res[i,:,:] = np.array([noise_dist(final_frame[i,d], 
                 rad_dist[d], fwhm_med, wedge, False, debug) for d in range(0, nbr_dist)]).reshape(nbr_dist, 2)
     final_noise = final_noise_res[:, :, 0]
-    final_mean_res = final_noise_res[:, :, 1]
+    final_mean_res = np.abs(final_noise_res[:, :, 1])
     
     final_recovered_fluxes = np.zeros((NbrStepValue, nbr_dist, nbranch))
     for i in range(0,NbrStepValue):
@@ -1595,10 +1209,147 @@ def contrast_step_dist(
             final_result[i,:,1] = (
                 (sigma * final_noise[i,:] + final_mean_res[i,:]) / final_result[i,:,0]
             ) / np.median(starphot)
+            
+    
+    thru_cont_avg = np.zeros((nnpcs, nbr_dist, 3))
+    thru_cont_avg[:,:,0] = thruput_avg
+    if isinstance(starphot, float) or isinstance(starphot, int):
+        thru_cont_avg[:,:,1] = (
+            (sigma * noise_avg[:,:,0] + np.abs(noise_avg[:,:,1])) / thru_cont_avg[:,:,0]
+        ) / starphot
+    else:
+        thru_cont_avg[:,:,1] = (
+            (sigma * noise_avg[:,:,0] + np.abs(noise_avg[:,:,1])) / thru_cont_avg[:,:,0]
+        ) / np.median(starphot)
+    thru_cont_avg[:,:,2] = ncomp.reshape(ncomp.shape[0],1)
         
-    return (step, rad_dist, BestComp, final_result, final_frame, final_frames_br)
+    return (thru_cont_avg, final_result, rad_dist, step, BestComp, final_frame, final_frames_br)
 
 
+
+def contrast_multi_epoch(
+    cube,
+    angle_list,
+    psf_template,
+    fwhm,
+    distance,
+    pxscale,
+    starphot,
+    algo,
+    step,
+    through_thresh=0.1,
+    sigma=5,
+    nbranch=1,
+    theta=0,
+    inner_rad=1,
+    fc_rad_sep=3,
+    noise_sep=1,
+    wedge=(0, 360),
+    fc_snr=20,
+    cube_delimiter=None,
+    cube_ref_delimiter=None,
+    epoch_indices=None,
+    student=True,
+    transmission=None,
+    dpi=vip_figdpi,
+    debug=False,
+    verbose=True,
+    full_output=False,
+    save_plot=None,
+    object_name=None,
+    frame_size=None,
+    fix_y_lim=(),
+    figsize=vip_figsize,
+    algo_class=None,
+    matrix_adi_ref=None,
+    angle_adi_ref=None,
+    **algo_dict,
+    ):
+
+    results = []
+    algo_dict_copy = algo_dict.copy()
+    
+    if isinstance(cube_delimiter, list):
+        cube_delimiter = np.array(cube_delimiter)
+    if cube_delimiter.shape[0]%2 == 0:
+        nbr_epochs = int(cube_delimiter.shape[0]/2)
+        R = int(1)
+    else:
+        nbr_epochs = int(cube_delimiter.shape[0]-1)
+        R = int(0)
+    
+    for N in range(0, nbr_epochs):
+        algo_dict = algo_dict_copy.copy()
+        cube_adi = cube[cube_delimiter[N+R*N]:cube_delimiter[N+R*N+1]]
+        this_angle_list = angle_list[cube_delimiter[N+R*N]:cube_delimiter[N+R*N+1]]
+        if cube_ref_delimiter is not None:
+            cube_ref_delimiter = np.array(cube_ref_delimiter)
+            Rr = 0
+            if cube_ref_delimiter.shape[0] == nbr_epochs*2:
+                Rr = 1
+            algo_dict['cube_ref'] = algo_dict['cube_ref'][cube_ref_delimiter[N+Rr*N]:
+                                             cube_ref_delimiter[N+Rr*N+1],:,:]
+                
+        if algo.__name__ == 'pca_annular_corr':
+            if 'epoch_indices' in algo_dict.keys():
+                epoch_indices = np.array(epoch_indices)
+                Re = 0
+                if epoch_indices.shape[0] == nbr_epochs*2:
+                    Re = 1
+                algo_dict['epoch_indices'] = epoch_indices[N+Re*N:N+Re*N+2]
+            else:
+                algo_dict['epoch_indices'] = (cube_delimiter[N+R*N],cube_delimiter[N+R*N+1])
+                
+        if 'delta_rot' in algo_dict.keys():
+            if isinstance(algo_dict['delta_rot'], list):
+                algo_dict['delta_rot'] = np.array(algo_dict['delta_rot'])
+            if isinstance(algo_dict['delta_rot'], np.ndarray):
+                if algo_dict['delta_rot'].shape[0] != nbr_epochs:
+                    raise ValueError('delta_rot has wrong length')
+                algo_dict['delta_rot'] = algo_dict['delta_rot'][N]
+        
+        if step == 'max':
+            this_step = cube_adi.shape[0]
+        else:
+            this_step = step
+            
+        results.append(contrast_step_dist(
+            cube_adi,
+            this_angle_list,
+            psf_template,
+            fwhm,
+            distance,
+            pxscale,
+            starphot,
+            algo,
+            this_step,
+            through_thresh,
+            sigma,
+            nbranch,
+            theta,
+            inner_rad,
+            fc_rad_sep,
+            noise_sep,
+            wedge,
+            fc_snr,
+            student,
+            transmission,
+            dpi,
+            debug,
+            verbose,
+            full_output,
+            save_plot,
+            object_name,
+            frame_size,
+            fix_y_lim,
+            figsize,
+            algo_class,
+            matrix_adi_ref,
+            angle_adi_ref,
+            **algo_dict,
+        ))
+            
+    return results
 
 
 

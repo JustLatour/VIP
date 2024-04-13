@@ -500,142 +500,29 @@ def pca_annular(*all_args: List, **all_kwargs: dict):
         
         
 def pca_annular_corr(*all_args: List, **all_kwargs: dict):
-    """PCA model PSF subtraction for ADI, ADI+RDI or ADI+mSDI (IFS) data.
-
-    The PCA model is computed locally in each annulus (or annular sectors according
-    to ``n_segments``). For each sector we discard reference frames taking into
-    account a parallactic angle threshold (``delta_rot``) and optionally a
-    radial movement threshold (``delta_sep``) for 4d cubes.
-
-    For ADI+RDI data, it computes the principal components from the reference
-    library/cube, forcing pixel-wise temporal standardization. The number of
-    principal components can be automatically adjusted by the algorithm by
-    minimizing the residuals inside each patch/region.
-
-    References: [AMA12]_ for PCA-ADI; [ABS13]_ for PCA-ADI in concentric annuli
-    considering a parallactic angle threshold; [CHR19]_ for PCA-ASDI and
-    PCA-SADI in one or two steps.
-
-    Parameters
-    ----------
-    all_args: list, optional
-        Positionnal arguments for the PCA annular algorithm. Full list of parameters
-        below.
-    all_kwargs: dictionary, optional
-        Mix of keyword arguments that can initialize a PCA_ANNULAR_Params and the optional
-        'rot_options' dictionnary, with keyword values for "border_mode", "mask_val",
-        "edge_blend", "interp_zeros", "ker" (see documentation of
-        ``vip_hci.preproc.frame_rotate``). Can also contain a PCA_ANNULAR_Params named as
-        `algo_params`.
-
-    PCA annular parameters
-    ----------
-    cube : numpy ndarray, 3d or 4d
-        Input cube.
-    angle_list : numpy ndarray, 1d
-        Corresponding parallactic angle for each frame.
-    cube_ref : numpy ndarray, 3d, optional
-        Reference library cube. For Reference Star Differential Imaging.
-    scale_list : numpy ndarray, 1d, optional
-        If provided, triggers mSDI reduction. These should be the scaling
-        factors used to re-scale the spectral channels and align the speckles
-        in case of IFS data (ADI+mSDI cube). Usually, these can be approximated
-        by the last channel wavelength divided by the other wavelengths in the
-        cube (more thorough approaches can be used to get the scaling factors,
-        e.g. with ``vip_hci.preproc.find_scal_vector``).
-    radius_int : int, optional
-        The radius of the innermost annulus. By default is 0, if >0 then the
-        central circular region is discarded.
-    fwhm : float, optional
-        Size of the FWHM in pixels. Default is 4.
-    asize : float, optional
-        The size of the annuli, in pixels.
-    n_segments : int or list of ints or 'auto', optional
-        The number of segments for each annulus. When a single integer is given
-        it is used for all annuli. When set to 'auto', the number of segments is
-        automatically determined for every annulus, based on the annulus width.
-    delta_rot : float or tuple of floats, optional
-        Factor for adjusting the parallactic angle threshold, expressed in
-        FWHM. Default is 1 (excludes 1 FWHM on each side of the considered
-        frame). If a tuple of two floats is provided, they are used as the lower
-        and upper intervals for the threshold (grows linearly as a function of
-        the separation).
-    delta_sep : float or tuple of floats, optional
-        The threshold separation in terms of the mean FWHM (for ADI+mSDI data).
-        If a tuple of two values is provided, they are used as the lower and
-        upper intervals for the threshold (grows as a function of the
-        separation).
-    ncomp : 'auto', int, tuple/1d numpy array of int, list, tuple of lists, opt
-        How many PCs are used as a lower-dimensional subspace to project the
-        target (sectors of) frames. Depends on the dimensionality of `cube`.
-
-        * ADI and ADI+RDI (``cube`` is a 3d array): if a single integer is
-        provided, then the same number of PCs will be subtracted at each
-        separation (annulus). If a tuple is provided, then a different number
-        of PCs will be used for each annulus (starting with the innermost
-        one). If ``ncomp`` is set to ``auto`` then the number of PCs are
-        calculated for each region/patch automatically. If a list of int is
-        provided, several npc will be tried at once, but the same value of npc
-        will be used for all annuli. If a tuple of lists of int is provided,
-        the length of tuple should match the number of annuli and different sets
-        of npc will be calculated simultaneously for each annulus, with the
-        exact values of npc provided in the respective lists.
-
-        * ADI or ADI+RDI (``cube`` is a 4d array): same input format allowed as
-        above, but with a slightly different behaviour if ncomp is a list: if it
-        has the same length as the number of channels, each element of the list
-        will be used as ``ncomp`` value (whether int, float or tuple) for each
-        spectral channel. Otherwise the same behaviour as above is assumed.
-
-        * ADI+mSDI case: ``ncomp`` must be a tuple of two integers or a list of
-        tuples of two integers, with the number of PCs obtained from each
-        multi-spectral frame (for each sector) and the number of PCs used in the
-        second PCA stage (ADI fashion, using the residuals of the first stage).
-        If None then the second PCA stage is skipped and the residuals are
-        de-rotated and combined.
-
-    svd_mode : Enum, see `vip_hci.config.paramenum.SvdMode`
-        Switch for the SVD method/library to be used.
-    nproc : None or int, optional
-        Number of processes for parallel computing. If None the number of
-        processes will be set to (cpu_count()/2).
-    min_frames_lib : int, optional
-        Minimum number of frames in the PCA reference library.
-    max_frames_lib : int, optional
-        Maximum number of frames in the PCA reference library. The more
-        distant/decorrelated frames are removed from the library.
-    tol : float, optional
-        Stopping criterion for choosing the number of PCs when ``ncomp``
-        is None. Lower values will lead to smaller residuals and more PCs.
-    scaling : Enum, see `vip_hci.config.paramenum.Scaling`
-        Pixel-wise scaling mode using ``sklearn.preprocessing.scale``
-        function. If set to None, the input matrix is left untouched.
-    imlib : Enum, see `vip_hci.config.paramenum.Imlib`
-        See the documentation of the ``vip_hci.preproc.frame_rotate`` function.
-    interpolation :  Enum, see `vip_hci.config.paramenum.Interpolation`
-        See the documentation of the ``vip_hci.preproc.frame_rotate`` function.
-    collapse : Enum, see `vip_hci.config.paramenum.Collapse`
-        Sets the way of collapsing the frames for producing a final image.
-    collapse_ifs : Enum, see `vip_hci.config.paramenum.Collapse`
-        Sets how spectral residual frames should be combined to produce an
-        mSDI image.
-    ifs_collapse_range: str 'all' or tuple of 2 int
-        If a tuple, it should contain the first and last channels where the mSDI
-        residual channels will be collapsed (by default collapses all channels).
-    full_output: boolean, optional
-        Whether to return the final median combined image only or with other
-        intermediate arrays.
-    verbose : bool, optional
-        If True prints to stdout intermediate info.
-    theta_init : int
-        Initial azimuth [degrees] of the first segment, counting from the
-        positive x-axis counterclockwise (irrelevant if n_segments=1).
-    weights: 1d numpy array or list, optional
-        Weights to be applied for a weighted mean. Need to be provided if
-        collapse mode is 'wmean'.
-    cube_sig: numpy ndarray, opt
-        Cube with estimate of significant authentic signals. If provided, this
-        will be subtracted before projecting cube onto reference cube.
+    """Similar to pca_annular but more flexible
+    
+    -ADI_Fr_Lib:The number of ADI frames kept in the library to construct the 
+        principal components. They are selected based on which images are the most
+        correlated to the considered frame. If set to None, no limit on the number
+        is applied
+        The argument max_frames_lib is applied BEFORE the selection of the most
+        correlated ADI frames, therefore, ADI_Fr_Lib should be smaller than
+        max_frames_lib or equal to None
+    -RDI_Fr_Lib:Same as ADI_Fr_Lib but for the number of RDI images kept.
+    -epoch_indices:the frames of the cube on which the pca is actually applied.
+        This allows to have a big ADI cubes with some frames used as reference
+        images for the principal components calculation only.
+    -step_corr:The number of images at once that are treated. To optimize the
+        time taken by the algorithm, this parameter can be set to more than one.
+        If equal to two for example, pca will be applied on the first two frames
+        at once, meaning they will both have the same principal components. 
+        ADI_Fr_Lib and RDI_Fr_Lib are applied on the median of the two images then.
+    -Mask_Corr:Is a boolean mask. Normally, the most correlated frames are 
+        calculated on the annulus considered for the pca. However, the correlation 
+        factors could be influenced by the presence of companions. 
+        Mask_Corr allows for the selection of the most correlated frames on a 
+        different area of the images. This area will be the same for all the annuli.
 
     Returns
     -------
@@ -688,7 +575,8 @@ def pca_annular_corr(*all_args: List, **all_kwargs: dict):
         add_params = {"start_time": start_time, "full_output": True}
         
         NbrImages = algo_params.epoch_indices[1]-algo_params.epoch_indices[0]
-        if algo_params.step_corr == 1 and NbrImages == algo_params.cube.shape[0]:
+        if (algo_params.step_corr == 1 and NbrImages == algo_params.cube.shape[0]
+            and algo_params.ADI_Fr_Lib is None and algo_params.RDI_Fr_Lib is None):
             func_params = setup_parameters(
                 params_obj=algo_params, fkt=_pca_adi_rdi, **add_params
             )
