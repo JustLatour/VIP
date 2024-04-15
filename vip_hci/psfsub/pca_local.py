@@ -580,6 +580,8 @@ def pca_annular_corr(*all_args: List, **all_kwargs: dict):
             func_params = setup_parameters(
                 params_obj=algo_params, fkt=_pca_adi_rdi, **add_params
             )
+            if func_params['max_frames_lib'] is None:
+                func_params['max_frames_lib'] = 200
             res = _pca_adi_rdi(**func_params, **rot_options)
         else:
             func_params = setup_parameters(
@@ -1473,6 +1475,7 @@ def do_pca_patch_corr(
             
             index = int((indices_batch[-1]+indices_batch[0])/2)
             truncate = False
+            print(max_frames_lib)
             if max_frames_lib is not None:
                 truncate = True
             indices_left = _find_indices_adi2(angle_list_adiref, index, 

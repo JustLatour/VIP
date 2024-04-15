@@ -1022,6 +1022,7 @@ def contrast_step_dist(
         copy_ref = np.copy(algo_dict['cube_ref'])
         
     loc = np.zeros((nbr_dist, nbranch, 2))
+    thruput_avg_tmp = np.zeros((nnpcs, nbr_dist, nbranch))
     for br in range(nbranch):
         
         if matrix_adi_ref is not None:
@@ -1087,9 +1088,9 @@ def contrast_step_dist(
         recovered_flux_avg = np.array([apertureOne_flux(
             (frames_fc[n, br, :, :] - frames_no_fc[n, :, :]), loc[:,br,0], loc[:,br,1], fwhm_med
         ) for n in range(0, nnpcs)])
-        thruput_avg = np.zeros((nnpcs, nbr_dist))
         for d in range(0, nbr_dist):
-            thruput_avg[:,d] = recovered_flux_avg[:,d]/injected_flux[d]
+            thruput_avg_tmp[:,d,br] = recovered_flux_avg[:,d]/injected_flux[d]
+        thruput_avg_tmp[np.where(thruput_avg_tmp < 0)] = 0
         
         recovered_flux = []
         thruput = []
@@ -1211,6 +1212,7 @@ def contrast_step_dist(
             ) / np.median(starphot)
             
     
+    thruput_avg = np.nanmean(thruput_avg_tmp[:,:,:], axis = 2)
     thru_cont_avg = np.zeros((nnpcs, nbr_dist, 3))
     thru_cont_avg[:,:,0] = thruput_avg
     if isinstance(starphot, float) or isinstance(starphot, int):
@@ -1299,7 +1301,7 @@ def contrast_multi_epoch(
                 algo_dict['epoch_indices'] = epoch_indices[N+Re*N:N+Re*N+2]
             else:
                 algo_dict['epoch_indices'] = (cube_delimiter[N+R*N],cube_delimiter[N+R*N+1])
-                
+            
         if 'delta_rot' in algo_dict.keys():
             if isinstance(algo_dict['delta_rot'], list):
                 algo_dict['delta_rot'] = np.array(algo_dict['delta_rot'])
