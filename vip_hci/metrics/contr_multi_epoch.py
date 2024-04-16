@@ -1241,6 +1241,7 @@ def contrast_multi_epoch(
     pxscale,
     starphot,
     algo,
+    nbr_epochs,
     step,
     through_thresh=0.1,
     sigma=5,
@@ -1276,11 +1277,9 @@ def contrast_multi_epoch(
     
     if isinstance(cube_delimiter, list):
         cube_delimiter = np.array(cube_delimiter)
-    if cube_delimiter.shape[0]%2 == 0:
-        nbr_epochs = int(cube_delimiter.shape[0]/2)
+    if cube_delimiter.shape[0] == nbr_epochs*2:
         R = int(1)
     else:
-        nbr_epochs = int(cube_delimiter.shape[0]-1)
         R = int(0)
     
     for N in range(0, nbr_epochs):
