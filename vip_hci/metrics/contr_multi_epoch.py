@@ -1251,7 +1251,7 @@ def contrast_multi_epoch(
     fc_rad_sep=3,
     noise_sep=1,
     wedge=(0, 360),
-    fc_snr=20,
+    fc_snr=100,
     cube_delimiter=None,
     cube_ref_delimiter=None,
     epoch_indices=None,
@@ -1316,42 +1316,48 @@ def contrast_multi_epoch(
             this_step = cube_adi.shape[0]
         else:
             this_step = step
-            
-        results.append(contrast_step_dist(
-            cube_adi,
-            this_angle_list,
-            psf_template,
-            fwhm,
-            distance,
-            pxscale,
-            starphot,
-            algo,
-            this_step,
-            through_thresh,
-            sigma,
-            nbranch,
-            theta,
-            inner_rad,
-            fc_rad_sep,
-            noise_sep,
-            wedge,
-            fc_snr,
-            student,
-            transmission,
-            dpi,
-            debug,
-            verbose,
-            full_output,
-            save_plot,
-            object_name,
-            frame_size,
-            fix_y_lim,
-            figsize,
-            algo_class,
-            matrix_adi_ref,
-            angle_adi_ref,
-            **algo_dict,
-        ))
+        
+        try:
+            res = contrast_step_dist(
+                cube_adi,
+                this_angle_list,
+                psf_template,
+                fwhm,
+                distance,
+                pxscale,
+                starphot,
+                algo,
+                this_step,
+                through_thresh,
+                sigma,
+                nbranch,
+                theta,
+                inner_rad,
+                fc_rad_sep,
+                noise_sep,
+                wedge,
+                fc_snr,
+                student,
+                transmission,
+                dpi,
+                debug,
+                verbose,
+                full_output,
+                save_plot,
+                object_name,
+                frame_size,
+                fix_y_lim,
+                figsize,
+                algo_class,
+                matrix_adi_ref,
+                angle_adi_ref,
+                **algo_dict,
+            )
+            results.append(res)
+        except:
+            results.append("Error in epoch " + str(N))
+        if verbose:
+            print(results[N])
             
     return results
 

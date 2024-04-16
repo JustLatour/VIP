@@ -111,8 +111,9 @@ class PCA_ANNULAR_CORR_Params:
     step_corr: int = 1
     Mask_Corr: np.ndarray = None
     max_frames_lib: int = None
-    ADI_Fr_Lib: Union[int, List[int]] = None
-    RDI_Fr_Lib: Union[int, List[int]] = None
+    min_frames_lib: int = None
+    ADI_Lib: Union[int, List[int]] = None
+    RDI_Lib: Union[int, List[int]] = None
 
 @dataclass
 class ARDI_DOUBLE_PCA_Params:
@@ -148,8 +149,8 @@ class ARDI_DOUBLE_PCA_Params:
     mask_rdi: np.ndarray = None
     n_annuli: int = None
     Mask_Corr: np.ndarray = None
-    ADI_Fr_Lib: Union[int, List[int]] = None
-    RDI_Fr_Lib: Union[int, List[int]] = None
+    ADI_Lib: Union[int, List[int]] = None
+    RDI_Lib: Union[int, List[int]] = None
     crop_adi: int = None
 
 
@@ -502,14 +503,14 @@ def pca_annular(*all_args: List, **all_kwargs: dict):
 def pca_annular_corr(*all_args: List, **all_kwargs: dict):
     """Similar to pca_annular but more flexible
     
-    -ADI_Fr_Lib:The number of ADI frames kept in the library to construct the 
+    -ADI_Lib:The number of ADI frames kept in the library to construct the 
         principal components. They are selected based on which images are the most
         correlated to the considered frame. If set to None, no limit on the number
         is applied
         The argument max_frames_lib is applied BEFORE the selection of the most
-        correlated ADI frames, therefore, ADI_Fr_Lib should be smaller than
+        correlated ADI frames, therefore, ADI_Lib should be smaller than
         max_frames_lib or equal to None
-    -RDI_Fr_Lib:Same as ADI_Fr_Lib but for the number of RDI images kept.
+    -RDI_Lib:Same as ADI_Lib but for the number of RDI images kept.
     -epoch_indices:the frames of the cube on which the pca is actually applied.
         This allows to have a big ADI cubes with some frames used as reference
         images for the principal components calculation only.
@@ -517,7 +518,7 @@ def pca_annular_corr(*all_args: List, **all_kwargs: dict):
         time taken by the algorithm, this parameter can be set to more than one.
         If equal to two for example, pca will be applied on the first two frames
         at once, meaning they will both have the same principal components. 
-        ADI_Fr_Lib and RDI_Fr_Lib are applied on the median of the two images then.
+        ADI_Lib and RDI_Lib are applied on the median of the two images then.
     -Mask_Corr:Is a boolean mask. Normally, the most correlated frames are 
         calculated on the annulus considered for the pca. However, the correlation 
         factors could be influenced by the presence of companions. 
@@ -576,12 +577,14 @@ def pca_annular_corr(*all_args: List, **all_kwargs: dict):
         
         NbrImages = algo_params.epoch_indices[1]-algo_params.epoch_indices[0]
         if (algo_params.step_corr == 1 and NbrImages == algo_params.cube.shape[0]
-            and algo_params.ADI_Fr_Lib is None and algo_params.RDI_Fr_Lib is None):
+            and algo_params.ADI_Lib is None and algo_params.RDI_Lib is None):
             func_params = setup_parameters(
                 params_obj=algo_params, fkt=_pca_adi_rdi, **add_params
             )
             if func_params['max_frames_lib'] is None:
                 func_params['max_frames_lib'] = 200
+            if func_params['min_frames_lib'] is None:
+                func_params['min_frames_lib'] = 10
             res = _pca_adi_rdi(**func_params, **rot_options)
         else:
             func_params = setup_parameters(
@@ -1092,8 +1095,8 @@ def _pca_adi_rdi_corr(
     nproc=None,
     step_corr = 1,
     max_frames_lib = None,
-    ADI_Fr_Lib = None,
-    RDI_Fr_Lib = None,
+    ADI_Lib = None,
+    RDI_Lib = None,
     tol=1e-1,
     scaling=None,
     imlib="vip-fft",
@@ -1230,8 +1233,8 @@ def _pca_adi_rdi_corr(
                     svd_mode,
                     ncompann,
                     max_frames_lib,
-                    ADI_Fr_Lib,
-                    RDI_Fr_Lib,
+                    ADI_Lib,
+                    RDI_Lib,
                     scaling,
                     tol,
                     Mask_Corr,
@@ -1426,8 +1429,8 @@ def do_pca_patch_corr(
     svd_mode,
     ncomp,
     max_frames_lib,
-    ADI_Fr_Lib,
-    RDI_Fr_Lib,
+    ADI_Lib,
+    RDI_Lib,
     scaling,
     tol,
     mask_corr,
@@ -1482,17 +1485,17 @@ def do_pca_patch_corr(
                         pa_limit, truncate=truncate, max_frames=max_frames_lib)
             matrix_adi = matrix_adi[indices_left, : ,:]
             n_adi = matrix_adi.shape[0]
-            #if n_adi < ADI_Fr_Lib:
+            #if n_adi < ADI_Lib:
             #    msg = "Pa_threshold too high. Not enough frames ({}) left in the library".format(n_adi)
             #    raise TypeError(msg)
         
         frame_ref = np.median(matrix_corr
                 [indices_batch[0]:indices_batch[-1]+1:1, :, :], axis = 0)
         
-        if (ADI_Fr_Lib is None) or (n_adi <= ADI_Fr_Lib and n_adi > 0):
+        if (ADI_Lib is None) or (n_adi <= ADI_Lib and n_adi > 0):
             indices_adi = [list(np.arange(0, n_adi, 1))]
         elif n_adi != 0:
-            percentile_adi = 100*(n_adi - ADI_Fr_Lib)/n_adi
+            percentile_adi = 100*(n_adi - ADI_Lib)/n_adi
             if mask_corr is None:
                 indices_adi = cube_detect_badfr_correlation(matrix_adi, frame_ref,
                         percentile=percentile_adi, mode='annulus', inradius=radius_int,
@@ -1511,11 +1514,11 @@ def do_pca_patch_corr(
         
         if matrix_rdi is not None:
             n_rdi = matrix_rdi.shape[0]
-            if (RDI_Fr_Lib is None) or (RDI_Fr_Lib >= n_rdi):
+            if (RDI_Lib is None) or (RDI_Lib >= n_rdi):
                 matrix_rdi_ref = matrix_rdi[:, yy, xx]
                 data_ref = np.concatenate((matrix_adi_ref, matrix_rdi_ref))
             else:
-                percentile_rdi = 100*(n_rdi - RDI_Fr_Lib)/n_rdi
+                percentile_rdi = 100*(n_rdi - RDI_Lib)/n_rdi
                 if mask_corr is None:
                     indices_rdi = cube_detect_badfr_correlation(matrix_rdi, frame_ref,
                         percentile=percentile_rdi, mode='annulus', inradius=radius_int,
