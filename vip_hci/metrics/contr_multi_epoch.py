@@ -1159,9 +1159,12 @@ def contrast_step_dist(
     BestComp = []
     for i in range(0,NbrStepValue):
         for d in range(0, nbr_dist):
-            AvgN = int(np.mean(BestNInd[i][np.where(BestNInd[i] != -1)]))
+            if np.where(BestNInd[i][:,d] != -1)[0].shape[0] == 0:
+                AvgN = 1
+            else:
+                AvgN = int(np.mean(BestNInd[i][np.where(BestNInd[i][:,d] != -1)[0],d]))
             #AvgN = int(np.nanmean(BestNInd))
-            BestNInd[i][np.where(BestNInd[i] == -1),d] = AvgN
+            BestNInd[i][np.where(BestNInd[i][:,d] == -1),d] = AvgN
         BestComp.append(ncomp[BestNInd[i]])
         
     
