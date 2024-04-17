@@ -868,7 +868,11 @@ def contrast_step_dist(
     if cube.ndim == 3:
         if isinstance(ncomp, list):
             nnpcs = len(ncomp)
+            if isinstance(ncomp[0], tuple):
+            #for pca_annular when ncomp is different for each annulus
+                nnpcs = len(ncomp[0][0])
         elif isinstance(ncomp, tuple):
+            #for ARDI_double_pca function
             if isinstance(ncomp[1], list):
                 nnpcs = len(ncomp[1])
             else:
@@ -889,6 +893,10 @@ def contrast_step_dist(
     mod = algo.__module__[:idx]
     tmp = __import__(mod, fromlist=[algo_name.upper()+'_Params'])    
     algo_params = getattr(tmp, algo_name.upper()+'_Params')
+    
+    algo_supported = ['pca_annular', 'pca_annular_corr', 'pca_annular_multi_epoch']
+    if algo_name not in algo_supported:
+        raise ValueError("Algorithm is not supported")
         
     SizeImage = int(cube[0].shape[1])
     NbrImages = int(cube.shape[0])
@@ -947,7 +955,7 @@ def contrast_step_dist(
             algo_dict['cube_ref'] = matrix_adi_ref
         NRefT = algo_dict['cube_ref'].shape[0]
     
-    if algo_name == "pca_annular" or algo_name == 'pca_annular_corr':
+    if 'annular' in algo_name:
         if distance == 'auto':
             radius_int = algo_dict['radius_int']
             asize = algo_dict['asize']
@@ -956,12 +964,17 @@ def contrast_step_dist(
             distance = np.array([radius_int+(asize/2) + i*asize for i in range(0, n_annuli)])/fwhm_med
         elif isinstance(distance, float):
             distance = np.array([distance])
-        elif isinstance(distance, np.ndarray):
+        elif isinstance(distance, list):
             distance = np.array(distance)
         else:
             raise ValueError("distance parameter must be a float, a list or equal to 'auto'")
         
-        _, res_cube_no_fc[:, :, :, :], frames_no_fc[:, :, :] = algo(
+        if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
+            _, res_cube_no_fc[:, :, :, :], frames_no_fc[:, :, :] = algo(
+                        cube=cube, angle_list=angle_list, fwhm=fwhm_med,
+                        verbose=verbose, full_output = True, **algo_dict)
+        elif algo_name == 'pca_annular_multi_epoch':
+            frames_no_fc[:, :, :], res_cube_no_fc[:, :, :, :] = algo(
                         cube=cube, angle_list=angle_list, fwhm=fwhm_med,
                         verbose=verbose, full_output = True, **algo_dict)
     else:
@@ -1079,7 +1092,12 @@ def contrast_step_dist(
             print(msg2.format(br + 1))
             timing(start_time)
     
-        _, res_cube_fc[:, br, : ,:, :], frames_fc[:, br, :, :] = algo(cube=cube_fc, 
+        if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
+            _, res_cube_fc[:, br, : ,:, :], frames_fc[:, br, :, :] = algo(cube=cube_fc, 
+                    angle_list=angle_list, fwhm=fwhm_med, verbose=verbose, 
+                    full_output = True, **algo_dict)
+        elif algo_name == 'pca_annular_multi_epoch':
+            frames_fc[:, br, :, :], res_cube_fc[:, br, : ,:, :] = algo(cube=cube_fc, 
                     angle_list=angle_list, fwhm=fwhm_med, verbose=verbose, 
                     full_output = True, **algo_dict)
         
