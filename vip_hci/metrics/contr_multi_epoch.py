@@ -1372,8 +1372,15 @@ def contrast_multi_epoch(
                 **algo_dict,
             )
             results.append(res)
-        except:
-            results.append("Error in epoch " + str(N))
+            
+        except Exception as e:
+            if hasattr(e, 'message'):
+                print(e.message)
+                results.append(e.message)
+            else:
+                print(e)
+                results.append(e)
+            
         if verbose:
             print(results[N])
             
