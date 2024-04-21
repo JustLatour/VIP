@@ -23,3 +23,4 @@ from .rollsub import *
 from .svd import *
 from .utils_pca import *
 from .pca_multi_epoch import *
+from .pca_local_masked import *
