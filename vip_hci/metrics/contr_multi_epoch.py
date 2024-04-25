@@ -1306,18 +1306,18 @@ def contrast_multi_epoch(
         this_angle_list = angle_list[cube_delimiter[N+R*N]:cube_delimiter[N+R*N+1]]
         if cube_ref_delimiter is not None:
             cube_ref_delimiter = np.array(cube_ref_delimiter)
-            Rr = 0
+            Rr = int(0)
             if cube_ref_delimiter.shape[0] == nbr_epochs*2:
-                Rr = 1
+                Rr = int(1)
             algo_dict['cube_ref'] = algo_dict['cube_ref'][cube_ref_delimiter[N+Rr*N]:
                                              cube_ref_delimiter[N+Rr*N+1],:,:]
                 
         if algo.__name__ == 'pca_annular_corr':
-            if 'epoch_indices' in algo_dict.keys():
+            if epoch_indices is not None:
                 epoch_indices = np.array(epoch_indices)
-                Re = 0
+                Re = int(0)
                 if epoch_indices.shape[0] == nbr_epochs*2:
-                    Re = 1
+                    Re = int(1)
                 algo_dict['epoch_indices'] = epoch_indices[N+Re*N:N+Re*N+2]
             else:
                 algo_dict['epoch_indices'] = (cube_delimiter[N+R*N],cube_delimiter[N+R*N+1])
@@ -1332,6 +1332,8 @@ def contrast_multi_epoch(
         
         if step == 'max':
             this_step = cube_adi.shape[0]
+            if epoch_indices is not None:
+                this_step = int(algo_dict['epoch_indices'][1]-algo_dict['epoch_indices'][0])
         else:
             this_step = step
         
