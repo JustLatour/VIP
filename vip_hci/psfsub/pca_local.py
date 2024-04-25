@@ -1122,7 +1122,6 @@ def _pca_adi_rdi_corr(
     n, y, x = array.shape
     
     cube_adi_ref = cube
-    print(cube_adi_ref.shape)
     
     angle_list = check_pa_vector(angle_list)
     angle_list_adiref = angle_list
@@ -1214,7 +1213,6 @@ def _pca_adi_rdi_corr(
                 matrix_sig_segm = None
                 
             N_It = int(array.shape[0]/step_corr)
-            print(array.shape)
 
             if not left_eigv:
                 res = pool_map(
@@ -1301,7 +1299,6 @@ def _pca_adi_rdi_corr(
             print("Done PCA with {} for current annulus".format(svd_mode))
             timing(start_time)
 
-    print(cube_out.shape)
     if isinstance(ncomp, list):
         cube_der = np.zeros_like(cube_out)
         frame = []
