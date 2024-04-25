@@ -126,6 +126,196 @@ def pca_ardi_mask_dist(
     asize,
     segment_width,
     location,
+    step_location = 1,
+    overlap = False,
+    zone = (0, 360),
+    mask_rdi = None,
+    pa_thr=1,
+    ncomp=1,
+    svd_mode="lapack",       
+    nproc=None,
+    min_frames_lib=2,
+    max_frames_lib=200,
+    tol=1e-1,
+    scaling=None,
+    imlib="vip-fft",
+    interpolation="lanczos4",
+    collapse="median",
+    full_output=False,
+    verbose=1,
+    cube_ref=None,
+    theta_init=0,
+    weights=None,
+    cube_sig=None,
+    left_eigv=False,
+    **rot_options,
+):
+    """
+    segment_width in fwhm
+    asize and inner_radius in pixels
+    location in degrees
+    step_location in degrees
+    """
+    array = cube
+    if array.ndim != 3:
+        raise TypeError("Input array is not a cube or 3d array")
+    if array.shape[0] != angle_list.shape[0]:
+        raise TypeError("Input vector or parallactic angles has wrong length")
+
+    n, y, x = array.shape
+
+    angle_list = check_pa_vector(angle_list)
+    if np.isscalar(ncomp):
+        ncomp = np.array([ncomp])
+    if isinstance(ncomp, list):
+        ncomp = np.array(ncomp)
+    
+    angular_range = zone[1]-zone[0] #in degrees
+    ann_center = inner_radius+(asize/2)
+    perimeter = np.deg2rad(angular_range)*ann_center  #in pixels
+    segment_width = fwhm * segment_width
+    angular_width = segment_width/ann_center #in radian
+    angle_sec = np.rad2deg(angular_width)
+
+    if location == 'all':
+        if overlap == False:
+            if perimeter % segment_width == 0:
+                n_images = int(perimeter/segment_width)
+                angle = angle_sec
+            else:
+                n_images = int(perimeter/segment_width + 1)
+                new_perim = segment_width * n_images
+                factor = perimeter/new_perim
+                angle = factor*angle_sec
+        elif overlap == True:
+            if segment_width < 1.5*fwhm:
+                raise ValueError('Segment width must be greater than 1.5 fwhm ' +
+                                 'with overlap = True')
+            n_images_no_overlap = int(perimeter/segment_width + 1)
+            new_perim = (segment_width+fwhm) * n_images_no_overlap
+            n_images = int(new_perim/segment_width + 1)
+            factor = perimeter/new_perim
+            angle = factor*angle_sec
+
+        centers = [zone[0] + angle/2]
+        while (centers[-1]+angle) < zone[1]:
+            centers.append(centers[-1]+angle)
+    elif np.isscalar(location):
+        centers = [location]
+        angle = step_location
+        add = 0
+        while add+step_location < zone[1]-zone[0]:
+            centers.append((centers[-1]+step_location)%(zone[1]-zone[0]))
+            add += step_location
+
+    n_images = len(centers)
+    
+    mask_annulus = np.ones_like(cube[0], dtype = int)
+    mask_annulus = mask_circle(mask_annulus, inner_radius)
+    mask_annulus = mask_circle(mask_annulus, inner_radius + asize, mode = 'out')
+    cube = cube * mask_annulus
+    
+    yy, xx = np.where(mask_annulus == 1)
+    
+    #then convert to bool, boucle on centers, get mask of zone to subtract, rotate it per image...
+    cy, cx = frame_center(cube[0])
+    twopi = 2*np.pi
+    
+    masks_centers = []
+    
+    nnpcs = ncomp.shape[0]
+    
+    results = np.zeros((n_images, nnpcs, cube.shape[1], cube.shape[2]))
+    for i, center in enumerate(centers):
+        anchor = mask_exclude(mask_annulus, center, angular_width)
+        boat = mask_annulus
+        
+        sci_cube_skysub = np.zeros((nnpcs, cube.shape[0], cube.shape[1], cube.shape[2]))
+        for k in range(cube.shape[0]):
+            position = center - angle_list[k]
+            anchor_k = mask_annulus - mask_exclude(mask_annulus, position, angle)
+            
+            if pa_thr != 0:
+                indices = np.hstack((_find_indices_adi2(angle_list, k, pa_thr),k))
+                indices = np.sort(indices)
+            else:
+                indices = np.arange(0, cube.shape[0])
+            
+            ind = np.where(indices == k)[0][0]
+            
+            cube_used = cube[indices]
+            
+            cube_anchor = cube_used * anchor_k
+            cube_anchor_l = prepare_matrix(cube_anchor, scaling=None, verbose=False)
+            cube_boat = prepare_matrix(cube_used * mask_annulus, scaling=None, verbose=False)
+            frame_boat = cube[k]
+            
+            sky_kl = np.dot(cube_anchor_l, cube_anchor_l.T)
+            #print(sky_kl)
+            #print(sky_kl.shape)
+            Msky_kl = prepare_matrix(sky_kl, scaling=None, verbose=False)
+            sky_pcs = svd_wrapper(Msky_kl, 'lapack', sky_kl.shape[0], False)
+            sky_pcs_kl = sky_pcs.reshape(sky_kl.shape[0], sky_kl.shape[1])
+            
+            sky_pc_anchor = np.dot(sky_pcs_kl, cube_anchor_l)
+            sky_pcs_anchor_cube = sky_pc_anchor.reshape(cube_anchor.shape[0],
+                                                        cube_anchor.shape[1],
+                                                        cube_anchor.shape[2])
+            
+            sky_pcs_boat_cube = np.dot(sky_pcs_kl, cube_boat).reshape(cube_anchor.shape[0],
+                                                                     cube_anchor.shape[1],
+                                                                     cube_anchor.shape[2])
+            #print(sky_pcs_boat_cube.shape)
+            transf_sci = np.zeros((cube_anchor.shape[0], cube_anchor.shape[0]))
+            for j in range(cube_anchor.shape[0]):
+                transf_sci[:, j] = np.inner(sky_pc_anchor, cube_anchor_l[j].T)
+
+            #print(transf_sci.shape)
+            #print(transf_sci)
+            Msky_pcs_anchor = prepare_matrix(sky_pcs_anchor_cube, scaling=None,
+                                             verbose=False)
+
+            mat_inv = np.linalg.inv(np.dot(Msky_pcs_anchor, Msky_pcs_anchor.T))
+            transf_sci_scaled = np.dot(mat_inv, transf_sci)
+            #print(transf_sci_scaled)
+            
+            tmp_sky = np.zeros_like(cube[k])
+            for n in range(np.max(ncomp)):
+                tmp_sky += np.array([transf_sci_scaled[n, ind]*sky_pcs_boat_cube[n]]).reshape(cube.shape[1], cube.shape[2])
+                if n+1 in ncomp:
+                    index = np.where(ncomp == n+1)[0][0]
+                    sci_cube_skysub[index,k] = cube[k] - tmp_sky
+                    
+        #derotation
+        cube_der = np.zeros_like(sci_cube_skysub)
+        for n in range(nnpcs):
+            cube_der[n,:,:,:] = cube_derotate(
+                sci_cube_skysub[n],
+                angle_list,
+                nproc=nproc,
+                imlib=imlib,
+                interpolation=interpolation,
+                **rot_options,
+            )
+            results[i, n, :, :] = cube_collapse(cube_der[n,:,:,:], mode=collapse, w=weights)
+        
+        
+            
+        #accelerate oit if delta_rot = 0, calculate only once principal components
+    #n_segments???
+    #ncomp is a list or not??
+    return results, centers
+
+
+
+def pca_ardi_mask_location(
+    cube,
+    angle_list,
+    inner_radius,
+    fwhm,
+    asize,
+    segment_width,
+    location,
     overlap = False,
     zone = (0, 360),
     mask_rdi = None,
@@ -175,30 +365,8 @@ def pca_ardi_mask_dist(
     angular_width = segment_width/ann_center #in radian
     angle_sec = np.rad2deg(angular_width)
 
-    if location == 'all':
-        if overlap == False:
-            if perimeter % segment_width == 0:
-                n_images = int(perimeter/segment_width)
-                angle = angle_sec
-            else:
-                n_images = int(perimeter/segment_width + 1)
-                new_perim = segment_width * n_images
-                factor = perimeter/new_perim
-                angle = factor*angle_sec
-        elif overlap == True:
-            if segment_width < 1.5*fwhm:
-                raise ValueError('Segment width must be greater than 1.5 fwhm ' +
-                                 'with overlap = True')
-            n_images_no_overlap = int(perimeter/segment_width + 1)
-            new_perim = (segment_width+fwhm) * n_images_no_overlap
-            n_images = int(new_perim/segment_width + 1)
-            factor = perimeter/new_perim
-            angle = factor*angle_sec
-
-        centers = [zone[0] + angle/2]
-        while (centers[-1]+angle) < zone[1]:
-            centers.append(centers[-1]+angle)
-    elif np.isscalar(location):
+    
+    if np.isscalar(location):
         n_images = int(1)
         centers = [location]
         angle = angle_sec
