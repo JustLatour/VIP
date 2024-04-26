@@ -120,90 +120,129 @@ def pca_multi_epoch(*all_args: list, **all_kwargs: dict):
     
     Inherited, NotInherited = Inherited_Params(algo_params)
     
-    ToRemove = ['full_output', 'ncomp', 'cube', 'cube_ref', 'angle_list', 
+    ToRemove = ['full_output', 'ncomp', 'cube', 'angle_list', 
                 'delta_rot', 'weights', 'collapse']
     Args_left = RemoveKeys(Inherited, ToRemove)
     
-    if (type(algo_params.delta_rot) == float):
-        algo_params.delta_rot = np.full_like(np.array(algo_params.ncomp), algo_params.delta_rot, dtype = float)
-    elif (type(algo_params.delta_rot) == int):
-        algo_params.delta_rot = np.full_like(np.array(algo_params.ncomp), algo_params.delta_rot, dtype = float)
-    elif algo_params.delta_rot == None:
-        algo_params.delta_rot = np.full(np.array(algo_params.ncomp).shape, algo_params.delta_rot, dtype = None)
-    
     NumberEpochs = len(algo_params.ncomp)
+    
+    if (type(algo_params.delta_rot) == float):
+        algo_params.delta_rot = np.full((NumberEpochs), algo_params.delta_rot, dtype = float)
+    elif (type(algo_params.delta_rot) == int):
+        algo_params.delta_rot = np.full((NumberEpochs), algo_params.delta_rot, dtype = float)
+    elif algo_params.delta_rot == None:
+        algo_params.delta_rot = np.full((NumberEpochs), algo_params.delta_rot, dtype = None)
 
-    #RDI case
-    if algo_params.cube_ref is not None:
-        GlobalResiduals = np.array([[[]]])
-        
-        #To know the format used for cube_ref_delimiter
-        ReusedRef = False
-        if len(algo_params.cube_ref_delimiter) == 2*NumberEpochs:
-            ReusedRef = True
-            
-            
-        for i in range(0, NumberEpochs, 1):
-            StartIndexCube = algo_params.cube_delimiter[i]
-            EndIndexCube = algo_params.cube_delimiter[i+1]
-            
-            if ReusedRef:
-                StartIndexCubeRef = algo_params.cube_ref_delimiter[2*i]
-                EndIndexCubeRef = algo_params.cube_ref_delimiter[2*i +1]
-            
-            else:
-                StartIndexCubeRef = algo_params.cube_ref_delimiter[i]
-                EndIndexCubeRef = algo_params.cube_ref_delimiter[i+1]
-                
-            _, _, _, _, residuals_cube_ = pca(
-                algo_params.cube[StartIndexCube:EndIndexCube,:,:],
-                algo_params.angle_list[StartIndexCube:EndIndexCube],
-                cube_ref = algo_params.cube_ref[StartIndexCubeRef:EndIndexCubeRef,:,:],
-                ncomp = int(algo_params.ncomp[i]), full_output = True, 
-                delta_rot = algo_params.delta_rot[i],
-                **Args_left, **rot_options)
-                #**Params_PCA, **last_kwargs, **rot_options)
-                
-            if i == 0:
-                GlobalResiduals = residuals_cube_
-            else:
-                GlobalResiduals = np.vstack((GlobalResiduals, residuals_cube_))
-            
-            #print(GlobalResiduals.shape)
-                
-            
-        #FinalFrame = np.median(GlobalResiduals, axis = 0)
-        FinalFrame = cube_collapse(
-            GlobalResiduals, mode=algo_params.collapse, w=algo_params.weights
-        )
-        #return FinalFrame
     
+    Args_left_copy = Args_left.copy()
+    GlobalResiduals = np.array([[[]]])
     
-    #ADI case
-    else:
-        GlobalResiduals = np.array([[[]]])
-        for i in range(0, NumberEpochs, 1):
-            StartIndex = algo_params.cube_delimiter[i]
-            EndIndex = algo_params.cube_delimiter[i+1]
-            
-            _, _, _, _, residuals_cube_ = pca(
-                algo_params.cube[StartIndex:EndIndex,:,:],
-                algo_params.angle_list[StartIndex:EndIndex],
-                ncomp = int(algo_params.ncomp[i]), full_output = True, 
-                delta_rot = algo_params.delta_rot[i],
-                **Args_left, **rot_options)
-                #**Params_PCA, **last_kwargs, **rot_options)
-            
-            if i == 0:
-                GlobalResiduals = residuals_cube_
-            else:
-                GlobalResiduals = np.vstack((GlobalResiduals, residuals_cube_))
+    R = int(0)
+    if len(algo_params.cube_delimiter) == 2*NumberEpochs:
+        R = int(1)
         
-        #FinalFrame = np.median(GlobalResiduals, axis = 0)
-        FinalFrame = cube_collapse(
-            GlobalResiduals, mode=algo_params.collapse, w=algo_params.weights
-        )
-        #return FinalFrame
+    for N in range(0, NumberEpochs, 1):
+        Args_left = Args_left_copy.copy()
+        
+        if algo_params.cube_ref is not None:
+            Rr = int(0)
+            if len(algo_params.cube_ref_delimiter) == 2*NumberEpochs:
+                Rr = int(1)
+            #To know the format used for cube_ref_delimiter
+            Args_left['cube_ref'] = Args_left['cube_ref'][algo_params.cube_ref_delimiter[N+Rr*N]:
+                                             algo_params.cube_ref_delimiter[N+Rr*N+1],:,:]
+        
+        this_cube = algo_params.cube[algo_params.cube_delimiter[N+R*N]:algo_params.cube_delimiter[N+R*N+1]]
+        this_angle_list = algo_params.angle_list[algo_params.cube_delimiter[N+R*N]:algo_params.cube_delimiter[N+R*N+1]]
+        
+        _, _, _, _, residuals_cube_ = pca(
+            this_cube, this_angle_list,
+            ncomp = int(algo_params.ncomp[N]), full_output = True, 
+            delta_rot = algo_params.delta_rot[N],
+            **Args_left, **rot_options)
+        
+        if N == 0:
+            GlobalResiduals = residuals_cube_
+        else:
+            GlobalResiduals = np.vstack((GlobalResiduals, residuals_cube_))
+    
+    FinalFrame = cube_collapse(
+        GlobalResiduals, mode=algo_params.collapse, w=algo_params.weights
+    )
+
+# =============================================================================
+#     #RDI case
+#     if algo_params.cube_ref is not None:
+#         GlobalResiduals = np.array([[[]]])
+#         
+#         #To know the format used for cube_ref_delimiter
+#         ReusedRef = False
+#         if len(algo_params.cube_ref_delimiter) == 2*NumberEpochs:
+#             ReusedRef = True
+#             
+#             
+#         for i in range(0, NumberEpochs, 1):
+#             StartIndexCube = algo_params.cube_delimiter[i]
+#             EndIndexCube = algo_params.cube_delimiter[i+1]
+#             
+#             if ReusedRef:
+#                 StartIndexCubeRef = algo_params.cube_ref_delimiter[2*i]
+#                 EndIndexCubeRef = algo_params.cube_ref_delimiter[2*i +1]
+#             
+#             else:
+#                 StartIndexCubeRef = algo_params.cube_ref_delimiter[i]
+#                 EndIndexCubeRef = algo_params.cube_ref_delimiter[i+1]
+#                 
+#             _, _, _, _, residuals_cube_ = pca(
+#                 algo_params.cube[StartIndexCube:EndIndexCube,:,:],
+#                 algo_params.angle_list[StartIndexCube:EndIndexCube],
+#                 cube_ref = algo_params.cube_ref[StartIndexCubeRef:EndIndexCubeRef,:,:],
+#                 ncomp = int(algo_params.ncomp[i]), full_output = True, 
+#                 delta_rot = algo_params.delta_rot[i],
+#                 **Args_left, **rot_options)
+#                 #**Params_PCA, **last_kwargs, **rot_options)
+#                 
+#             if i == 0:
+#                 GlobalResiduals = residuals_cube_
+#             else:
+#                 GlobalResiduals = np.vstack((GlobalResiduals, residuals_cube_))
+#             
+#             #print(GlobalResiduals.shape)
+#                 
+#             
+#         #FinalFrame = np.median(GlobalResiduals, axis = 0)
+#         FinalFrame = cube_collapse(
+#             GlobalResiduals, mode=algo_params.collapse, w=algo_params.weights
+#         )
+#         #return FinalFrame
+#     
+#     
+#     #ADI case
+#     else:
+#         GlobalResiduals = np.array([[[]]])
+#         for i in range(0, NumberEpochs, 1):
+#             StartIndex = algo_params.cube_delimiter[i]
+#             EndIndex = algo_params.cube_delimiter[i+1]
+#             
+#             _, _, _, _, residuals_cube_ = pca(
+#                 algo_params.cube[StartIndex:EndIndex,:,:],
+#                 algo_params.angle_list[StartIndex:EndIndex],
+#                 ncomp = int(algo_params.ncomp[i]), full_output = True, 
+#                 delta_rot = algo_params.delta_rot[i],
+#                 **Args_left, **rot_options)
+#                 #**Params_PCA, **last_kwargs, **rot_options)
+#             
+#             if i == 0:
+#                 GlobalResiduals = residuals_cube_
+#             else:
+#                 GlobalResiduals = np.vstack((GlobalResiduals, residuals_cube_))
+#         
+#         #FinalFrame = np.median(GlobalResiduals, axis = 0)
+#         FinalFrame = cube_collapse(
+#             GlobalResiduals, mode=algo_params.collapse, w=algo_params.weights
+#         )
+#         #return FinalFrame
+# =============================================================================
     
     if algo_params.full_output:
         return FinalFrame, GlobalResiduals
@@ -240,88 +279,130 @@ def pca_annular_multi_epoch(*all_args: list, **all_kwargs: dict):
     
     Inherited, NotInherited = Inherited_Params(algo_params)
     
-    ToRemove = ['full_output', 'ncomp', 'cube', 'cube_ref', 'angle_list', 
-                'delta_rot', 'weights', 'collapse']
+    ToRemove = ['full_output', 'ncomp', 'cube', 'angle_list', 'delta_rot',
+                'weights', 'collapse']
     Args_left = RemoveKeys(Inherited, ToRemove)
     
+    NumberEpochs = len(algo_params.ncomp)
+    
     if (type(algo_params.delta_rot) == float):
-        algo_params.delta_rot = np.full_like(np.array(algo_params.ncomp), algo_params.delta_rot, dtype = float)
+        algo_params.delta_rot = np.full((NumberEpochs), algo_params.delta_rot, dtype = float)
     elif (type(algo_params.delta_rot) == int):
-        algo_params.delta_rot = np.full_like(np.array(algo_params.ncomp), algo_params.delta_rot, dtype = float)
+        algo_params.delta_rot = np.full((NumberEpochs), algo_params.delta_rot, dtype = float)
     elif algo_params.delta_rot == None:
-        algo_params.delta_rot = np.full(np.array(algo_params.ncomp).shape, algo_params.delta_rot, dtype = None)
+        algo_params.delta_rot = np.full((NumberEpochs), algo_params.delta_rot, dtype = None)
+    elif isinstance(algo_params.delta_rot, tuple):
+        algo_params.delta_rot = [algo_params.delta_rot]*NumberEpochs
     
     if (type(algo_params.ncomp) == tuple):
         raise TypeError(
             "Ncomp cannot be a tuple in the pca_annular_multi_epoch case."
         )
-    
-    NumberEpochs = len(algo_params.ncomp)
 
-    #RDI(+ADI) case
-    if algo_params.cube_ref is not None:
-        GlobalResiduals = np.array([[[]]])
-        
-        #To know the format used for cube_ref_delimiter
-        ReusedRef = False
-        if len(algo_params.cube_ref_delimiter) == 2*NumberEpochs:
-            ReusedRef = True
-            
-            
-        for i in range(0, NumberEpochs, 1):
-            StartIndexCube = algo_params.cube_delimiter[i]
-            EndIndexCube = algo_params.cube_delimiter[i+1]
-            
-            if ReusedRef:
-                StartIndexCubeRef = algo_params.cube_ref_delimiter[2*i]
-                EndIndexCubeRef = algo_params.cube_ref_delimiter[2*i +1]
-            
-            else:
-                StartIndexCubeRef = algo_params.cube_ref_delimiter[i]
-                EndIndexCubeRef = algo_params.cube_ref_delimiter[i+1]
-                
-            _, residuals_cube_, _ = pca_annular(
-                algo_params.cube[StartIndexCube:EndIndexCube,:,:],
-                algo_params.angle_list[StartIndexCube:EndIndexCube],
-                cube_ref = algo_params.cube_ref[StartIndexCubeRef:EndIndexCubeRef,:,:],
-                ncomp = int(algo_params.ncomp[i]), full_output = True, 
-                delta_rot = algo_params.delta_rot[i],
-                **Args_left, **rot_options)
-                
-            if i == 0:
-                GlobalResiduals = residuals_cube_
-            else:
-                GlobalResiduals = np.vstack((GlobalResiduals, residuals_cube_))
-                
-                
-        #FinalFrame = np.median(GlobalResiduals, axis = 0)
-        FinalFrame = cube_collapse(
-            GlobalResiduals, mode=algo_params.collapse, w=algo_params.weights
-        )
     
-    #ADI case
-    else:
-        GlobalResiduals = np.array([[[]]])
-        for i in range(0, NumberEpochs, 1):
-            StartIndex = algo_params.cube_delimiter[i]
-            EndIndex = algo_params.cube_delimiter[i+1]
-            
-            _, residuals_cube_, _ = pca_annular(
-                algo_params.cube[StartIndex:EndIndex,:,:],
-                algo_params.angle_list[StartIndex:EndIndex],
-                ncomp = int(algo_params.ncomp[i]), full_output = True, 
-                delta_rot = algo_params.delta_rot[i],
-                **Args_left, **rot_options)
-            
-            if i == 0:
-                GlobalResiduals = residuals_cube_
-            else:
-                GlobalResiduals = np.vstack((GlobalResiduals, residuals_cube_))
+    Args_left_copy = Args_left.copy()
+    GlobalResiduals = np.array([[[]]])
+    
+    R = int(0)
+    if len(algo_params.cube_delimiter) == 2*NumberEpochs:
+        R = int(1)
+    
+    for N in range(0, NumberEpochs, 1):
+        Args_left = Args_left_copy.copy()
         
-        #FinalFrame = np.median(GlobalResiduals, axis = 0)
-        FinalFrame = cube_collapse(
-            GlobalResiduals, mode=algo_params.collapse, w=algo_params.weights
-        )
+        if algo_params.cube_ref is not None:
+            Rr = int(0)
+            if len(algo_params.cube_ref_delimiter) == 2*NumberEpochs:
+                Rr = int(1)
+            #To know the format used for cube_ref_delimiter
+            Args_left['cube_ref'] = Args_left['cube_ref'][algo_params.cube_ref_delimiter[N+Rr*N]:
+                                             algo_params.cube_ref_delimiter[N+Rr*N+1],:,:]
+                
+        this_cube = algo_params.cube[algo_params.cube_delimiter[N+R*N]:algo_params.cube_delimiter[N+R*N+1]]
+        this_angle_list = algo_params.angle_list[algo_params.cube_delimiter[N+R*N]:algo_params.cube_delimiter[N+R*N+1]]
+        
+        _, residuals_cube_, _ = pca_annular(
+            this_cube, this_angle_list,
+            ncomp = algo_params.ncomp[N], full_output = True, 
+            delta_rot = algo_params.delta_rot[N],
+            **Args_left, **rot_options)
+        
+        if N == 0:
+            GlobalResiduals = residuals_cube_
+        else:
+            GlobalResiduals = np.vstack((GlobalResiduals, residuals_cube_))
+    
+    FinalFrame = cube_collapse(
+        GlobalResiduals, mode=algo_params.collapse, w=algo_params.weights
+    )
+
+
+# =============================================================================
+#     #RDI(+ADI) case
+#     if algo_params.cube_ref is not None:
+#         GlobalResiduals = np.array([[[]]])
+#         
+#         #To know the format used for cube_ref_delimiter
+#         Rr = int(0)
+#         if len(algo_params.cube_ref_delimiter) == 2*NumberEpochs:
+#             Rr = int(1)
+#             
+#             
+#         for i in range(0, NumberEpochs, 1):
+#             StartIndexCube = algo_params.cube_delimiter[i]
+#             EndIndexCube = algo_params.cube_delimiter[i+1]
+#             
+#             if ReusedRef:
+#                 StartIndexCubeRef = algo_params.cube_ref_delimiter[2*i]
+#                 EndIndexCubeRef = algo_params.cube_ref_delimiter[2*i +1]
+#             
+#             else:
+#                 StartIndexCubeRef = algo_params.cube_ref_delimiter[i]
+#                 EndIndexCubeRef = algo_params.cube_ref_delimiter[i+1]
+#                 
+#             _, residuals_cube_, _ = pca_annular(
+#                 algo_params.cube[StartIndexCube:EndIndexCube,:,:],
+#                 algo_params.angle_list[StartIndexCube:EndIndexCube],
+#                 cube_ref = algo_params.cube_ref[StartIndexCubeRef:EndIndexCubeRef,:,:],
+#                 ncomp = int(algo_params.ncomp[i]), full_output = True, 
+#                 delta_rot = algo_params.delta_rot[i],
+#                 **Args_left, **rot_options)
+#                 
+#             if i == 0:
+#                 GlobalResiduals = residuals_cube_
+#             else:
+#                 GlobalResiduals = np.vstack((GlobalResiduals, residuals_cube_))
+#                 
+#                 
+#         #FinalFrame = np.median(GlobalResiduals, axis = 0)
+#         FinalFrame = cube_collapse(
+#             GlobalResiduals, mode=algo_params.collapse, w=algo_params.weights
+#         )
+#     
+#     #ADI case
+#     else:
+#         GlobalResiduals = np.array([[[]]])
+#         for i in range(0, NumberEpochs, 1):
+#             StartIndex = algo_params.cube_delimiter[i]
+#             EndIndex = algo_params.cube_delimiter[i+1]
+#             
+#             _, residuals_cube_, _ = pca_annular(
+#                 algo_params.cube[StartIndex:EndIndex,:,:],
+#                 algo_params.angle_list[StartIndex:EndIndex],
+#                 ncomp = int(algo_params.ncomp[i]), full_output = True, 
+#                 delta_rot = algo_params.delta_rot[i],
+#                 **Args_left, **rot_options)
+#             
+#             if i == 0:
+#                 GlobalResiduals = residuals_cube_
+#             else:
+#                 GlobalResiduals = np.vstack((GlobalResiduals, residuals_cube_))
+#         
+#         #FinalFrame = np.median(GlobalResiduals, axis = 0)
+#         FinalFrame = cube_collapse(
+#             GlobalResiduals, mode=algo_params.collapse, w=algo_params.weights
+#         )
+# =============================================================================
     
     if algo_params.full_output:
         return FinalFrame, GlobalResiduals
