@@ -900,6 +900,7 @@ def _pca_adi_rdi(
     elif np.isscalar(delta_rot):
         delta_rot = [delta_rot] * n_annuli
 
+
     if isinstance(n_segments, int):
         n_segments = [n_segments for _ in range(n_annuli)]
     elif n_segments == "auto":
@@ -1134,6 +1135,8 @@ def _pca_adi_rdi_corr(
         delta_rot = np.linspace(delta_rot[0], delta_rot[1], num=n_annuli)
     elif np.isscalar(delta_rot):
         delta_rot = [delta_rot] * n_annuli
+    elif isinstance(delta_rot, list) and len(delta_rot) != n_annuli:
+        raise ValueError("Delta_rot must have same length as the number of annuli")
 
     if isinstance(n_segments, int):
         n_segments = [n_segments for _ in range(n_annuli)]
