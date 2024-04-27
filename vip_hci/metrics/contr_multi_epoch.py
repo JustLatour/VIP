@@ -868,7 +868,7 @@ def contrast_step_dist(
     if cube.ndim == 3:
         if isinstance(ncomp, list):
             nnpcs = len(ncomp)
-            if isinstance(ncomp[0], tuple):
+            if isinstance(ncomp[0], tuple) or isinstance(ncomp[0], np.ndarray):
             #for pca_annular when ncomp is different for each annulus
                 nnpcs = len(ncomp[0][0])
         elif isinstance(ncomp, tuple):
@@ -894,7 +894,8 @@ def contrast_step_dist(
     tmp = __import__(mod, fromlist=[algo_name.upper()+'_Params'])    
     algo_params = getattr(tmp, algo_name.upper()+'_Params')
     
-    algo_supported = ['pca_annular', 'pca_annular_corr', 'pca_annular_multi_epoch']
+    algo_supported = ['pca_annular', 'pca_annular_corr', 
+                      'pca_annular_multi_epoch', 'pca_annular_corr_multi_epoch']
     if algo_name not in algo_supported:
         raise ValueError("Algorithm is not supported")
         
@@ -973,7 +974,7 @@ def contrast_step_dist(
             _, res_cube_no_fc[:, :, :, :], frames_no_fc[:, :, :] = algo(
                         cube=cube, angle_list=angle_list, fwhm=fwhm_med,
                         verbose=verbose, full_output = True, **algo_dict)
-        elif algo_name == 'pca_annular_multi_epoch':
+        elif algo_name == 'pca_annular_multi_epoch' or algo_name == 'pca_annular_corr_multi_epoch':
             frames_no_fc[:, :, :], res_cube_no_fc[:, :, :, :] = algo(
                         cube=cube, angle_list=angle_list, fwhm=fwhm_med,
                         verbose=verbose, full_output = True, **algo_dict)
@@ -1096,7 +1097,7 @@ def contrast_step_dist(
             _, res_cube_fc[:, br, : ,:, :], frames_fc[:, br, :, :] = algo(cube=cube_fc, 
                     angle_list=angle_list, fwhm=fwhm_med, verbose=verbose, 
                     full_output = True, **algo_dict)
-        elif algo_name == 'pca_annular_multi_epoch':
+        elif algo_name == 'pca_annular_multi_epoch' or algo_name == 'pca_annular_corr_multi_epoch':
             frames_fc[:, br, :, :], res_cube_fc[:, br, : ,:, :] = algo(cube=cube_fc, 
                     angle_list=angle_list, fwhm=fwhm_med, verbose=verbose, 
                     full_output = True, **algo_dict)
