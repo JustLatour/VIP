@@ -756,7 +756,7 @@ def contr_dist(
 
 
 
-def contrast_step_dist(
+def contrast_step_dist_opt(
     cube,
     angle_list,
     psf_template,
@@ -1260,7 +1260,7 @@ def contrast_step_dist(
 
 
 
-def contrast_multi_epoch(
+def contrast_multi_epoch_opt(
     cube,
     angle_list,
     psf_template,
@@ -1348,7 +1348,7 @@ def contrast_multi_epoch(
             this_step = step
         
         try:
-            res = contrast_step_dist(
+            res = contrast_step_dist_opt(
                 cube_adi,
                 this_angle_list,
                 psf_template,
@@ -1358,6 +1358,482 @@ def contrast_multi_epoch(
                 starphot,
                 algo,
                 this_step,
+                through_thresh,
+                sigma,
+                nbranch,
+                theta,
+                inner_rad,
+                fc_rad_sep,
+                noise_sep,
+                wedge,
+                fc_snr,
+                student,
+                transmission,
+                dpi,
+                debug,
+                verbose,
+                full_output,
+                save_plot,
+                object_name,
+                frame_size,
+                fix_y_lim,
+                figsize,
+                algo_class,
+                matrix_adi_ref,
+                angle_adi_ref,
+                **algo_dict,
+            )
+            results.append(res)
+            
+        except Exception as e:
+            if hasattr(e, 'message'):
+                print(e.message)
+                results.append(e.message)
+            else:
+                print(e)
+                results.append(e)
+            
+        if verbose:
+            print(results[N])
+            
+    return results
+
+
+
+def contrast_step_dist(
+    cube,
+    angle_list,
+    psf_template,
+    fwhm,
+    distance,
+    pxscale,
+    starphot,
+    algo,
+    through_thresh=0.1,
+    sigma=5,
+    nbranch=1,
+    theta=0,
+    inner_rad=1,
+    fc_rad_sep=3,
+    noise_sep=1,
+    wedge=(0, 360),
+    fc_snr=50,
+    student=True,
+    transmission=None,
+    dpi=vip_figdpi,
+    debug=False,
+    verbose=True,
+    full_output=False,
+    save_plot=None,
+    object_name=None,
+    frame_size=None,
+    fix_y_lim=(),
+    figsize=vip_figsize,
+    algo_class=None,
+    matrix_adi_ref=None,
+    angle_adi_ref=None,
+    **algo_dict,
+):
+    """
+    Estimates the contrast in much the same way contrast_curve does it, but
+    only at specific distances provided by the argument 'distance'.
+    
+    -ncomp: must be list of components that will be tested
+    
+    -distance:Provides the distances(in fwhm) at which the fake companions will
+    be injected. Attention: to limit computational cost, all companions at the 
+    different distances will be injected at once. In order to have the most
+    accurate estimation of the contrast, these companions should not be in
+    the same annulus.
+    If distance = 'auto': the distances are automatically calculated to be the
+    centers of the annuli in the images if the algorithm used has annuli
+    
+    -step:in addition to calculating the optimal contrast for each value of ncomp,
+    the optimization of the contrast can be done by segmenting the cube in steps.
+    The number of images must be divisible by the step
+    
+    -through_thresh:to select the optimal component, a threshold on the 
+    throuput can be used to prevent components with throughputs too low from
+    being selected
+    """
+    if cube.ndim != 3 and cube.ndim != 4:
+        raise TypeError("The input array is not a 3d or 4d cube")
+    if cube.ndim == 3 and (cube.shape[0] != angle_list.shape[0]):
+        raise TypeError("Input parallactic angles vector has wrong length")
+    if cube.ndim == 4 and (cube.shape[1] != angle_list.shape[0]):
+        raise TypeError("Input parallactic angles vector has wrong length")
+    if cube.ndim == 3 and psf_template.ndim != 2:
+        raise TypeError("Template PSF is not a frame (for ADI case)")
+    if cube.ndim == 4 and psf_template.ndim != 3:
+        raise TypeError("Template PSF is not a cube (for ADI+IFS case)")
+    if transmission is not None:
+        if len(transmission) != 2 and len(transmission) != cube.shape[0] + 1:
+            msg = "Wrong shape for transmission should be 2xn_rad or (nch+1) "
+            msg += "x n_rad, instead of {}".format(transmission.shape)
+            raise TypeError(msg)
+
+    if isinstance(fwhm, (np.ndarray, list)):
+        fwhm_med = np.median(fwhm)
+    else:
+        fwhm_med = fwhm
+
+    if verbose:
+        start_time = time_ini()
+        if isinstance(starphot, float) or isinstance(starphot, int):
+            msg0 = "ALGO : {}, FWHM = {}, # BRANCHES = {}, SIGMA = {},"
+            msg0 += " STARPHOT = {}"
+            print(msg0.format(algo.__name__, fwhm_med, nbranch, sigma, starphot))
+        else:
+            msg0 = "ALGO : {}, FWHM = {}, # BRANCHES = {}, SIGMA = {}"
+            print(msg0.format(algo.__name__, fwhm_med, nbranch, sigma))
+            
+    if cube.ndim != 3 and cube.ndim != 4:
+        raise TypeError("The input array is not a 3d or 4d cube")
+
+    else:
+        if psf_template.shape[1] % 2 == 0:
+            raise ValueError("Only odd-sized PSF is accepted")
+        if not hasattr(algo, "__call__"):
+            raise TypeError("Parameter `algo` must be a callable function")
+        if not isinstance(inner_rad, int):
+            raise TypeError("inner_rad must be an integer")
+        angular_range = wedge[1] - wedge[0]
+        if nbranch > 1 and angular_range < 360:
+            msg = "Only a single branch is allowed when working on a wedge"
+            raise RuntimeError(msg)
+        
+    nproc = algo_dict.get("nproc", 1)
+    imlib = algo_dict.get("imlib", "vip-fft")
+    interpolation = algo_dict.get("interpolation", "lanczos4")
+    scaling = algo_dict.get("scaling", None)
+    ncomp = algo_dict.get("ncomp")
+    
+    if cube.ndim == 3:
+        if isinstance(ncomp, list):
+            nnpcs = len(ncomp)
+            if isinstance(ncomp[0], tuple) or isinstance(ncomp[0], np.ndarray):
+            #for pca_annular when ncomp is different for each annulus
+                nnpcs = len(ncomp[0][0])
+        elif isinstance(ncomp, tuple):
+            #for ARDI_double_pca function
+            if isinstance(ncomp[1], list):
+                nnpcs = len(ncomp[1])
+            else:
+                nnpcs = 1
+        else:
+            nnpcs = 1
+    elif cube.ndim == 4:
+        if isinstance(ncomp, list):
+            if len(ncomp) == cube.shape[0]:
+                nnpcs = 1
+            else:
+                nnpcs = len(ncomp)
+        else:
+            nnpcs = 1
+    
+    if np.isscalar(ncomp):
+        ncomp = np.array([ncomp])
+    elif isinstance(ncomp, list):
+        ncomp = np.array(ncomp)
+            
+    algo_name = algo.__name__
+    idx = algo.__module__.index('.', algo.__module__.index('.') + 1)
+    mod = algo.__module__[:idx]
+    tmp = __import__(mod, fromlist=[algo_name.upper()+'_Params'])    
+    algo_params = getattr(tmp, algo_name.upper()+'_Params')
+    
+    algo_supported = ['pca_annular', 'pca_annular_corr', 
+                      'pca_annular_multi_epoch', 'pca_annular_corr_multi_epoch']
+    if algo_name not in algo_supported:
+        raise ValueError("Algorithm is not supported")
+        
+    SizeImage = int(cube[0].shape[1])
+    NbrImages = int(cube.shape[0])
+    if algo_name == 'pca_annular_corr':
+        epoch_indices =  algo_dict['epoch_indices']
+        NbrImages = int(epoch_indices[1]-epoch_indices[0])
+    
+    
+    frames_fc = np.zeros((nnpcs, nbranch, SizeImage, SizeImage), dtype = float)
+    frames_no_fc = np.zeros((nnpcs, SizeImage, SizeImage), dtype = float)
+    res_cube_fc = np.zeros((nnpcs, nbranch, NbrImages, SizeImage, SizeImage), dtype = float)
+    res_cube_no_fc = np.zeros((nnpcs, NbrImages, SizeImage, SizeImage), dtype = float)
+    
+    if isinstance(fwhm, (np.ndarray, list)):
+        fwhm_med = np.median(fwhm)
+    else:
+        fwhm_med = fwhm
+
+    if verbose:
+        start_time = time_ini()
+        
+    
+    if matrix_adi_ref is not None:
+        if 'cube_ref' in algo_dict.keys() and algo_dict['cube_ref'] is not None:
+            NAdiRef = algo_dict['cube_ref'].shape[0]
+            algo_dict['cube_ref'] = np.vstack((algo_dict['cube_ref'], matrix_adi_ref))
+        else:
+            NAdiRef = 0
+            algo_dict['cube_ref'] = matrix_adi_ref
+        NRefT = algo_dict['cube_ref'].shape[0]
+    
+    if 'annular' in algo_name:
+        if distance == 'auto':
+            radius_int = algo_dict['radius_int']
+            asize = algo_dict['asize']
+            y = cube.shape[2]
+            n_annuli = int((y / 2 - radius_int) / asize)
+            distance = np.array([radius_int+(asize/2) + i*asize for i in range(0, n_annuli)])/fwhm_med
+        elif isinstance(distance, float):
+            distance = np.array([distance])
+        elif isinstance(distance, list):
+            distance = np.array(distance)
+        else:
+            raise ValueError("distance parameter must be a float, a list or equal to 'auto'")
+        
+        if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
+            _, res_cube_no_fc[:, :, :, :], frames_no_fc[:, :, :] = algo(
+                        cube=cube, angle_list=angle_list, fwhm=fwhm_med,
+                        verbose=verbose, full_output = True, **algo_dict)
+        elif algo_name == 'pca_annular_multi_epoch' or algo_name == 'pca_annular_corr_multi_epoch':
+            frames_no_fc[:, :, :], res_cube_no_fc[:, :, :, :] = algo(
+                        cube=cube, angle_list=angle_list, fwhm=fwhm_med,
+                        verbose=verbose, full_output = True, **algo_dict)
+    else:
+        raise ValueError("Algorithm not supported")
+        
+        
+    rad_dist = distance * fwhm_med
+    nbr_dist = distance.shape[0]
+
+    
+    noise_avg = np.array([noise_dist(frames_no_fc[n, :, :], rad_dist, fwhm_med, wedge, 
+                        False, debug) for n in range(0, nnpcs)])
+    
+    noise = noise_avg[:, :, 0]
+    mean_res = noise_avg[:, :, 1]
+    
+    
+    # We crop the PSF and check if PSF has been normalized (so that flux in
+    # 1*FWHM aperture = 1) and fix if needed
+    new_psf_size = int(round(3 * fwhm_med))
+    if new_psf_size % 2 == 0:
+        new_psf_size += 1
+    
+    n, y, x = cube.shape
+    psf_template = normalize_psf(
+        psf_template,
+        fwhm=fwhm,
+        verbose=verbose,
+        size=min(new_psf_size, psf_template.shape[1]),
+    )
+    
+    
+    # Initialize the fake companions
+    angle_branch = angular_range / nbranch
+    
+    Throughput = np.zeros((nnpcs, nbr_dist, nbranch))
+    
+    fc_map = np.zeros((y, x))
+    cy, cx = frame_center(cube[0])
+    parangles = angle_list
+
+    # each branch is computed separately
+    if matrix_adi_ref is not None:
+        copy_ref = np.copy(algo_dict['cube_ref'])
+        
+    loc = np.zeros((nbr_dist, nbranch, 2))
+    thruput = np.zeros((nnpcs, nbr_dist, nbranch))
+    recovered_flux = np.zeros((nnpcs, nbr_dist, nbranch))
+    all_injected_flux = np.zeros((nbr_dist, nbranch))
+    
+    
+    for n in range(0, nnpcs):
+        for br in range(nbranch):
+        
+            if matrix_adi_ref is not None:
+                algo_dict['cube_ref'] = np.copy(copy_ref)
+        
+            # each pattern is computed separately. For each one the companions
+            # are separated by "fc_rad_sep * fwhm", interleaving the injections
+            fc_map = np.ones_like(cube[0]) * 1e-6
+            fcy = 0
+            fcx = 0
+            flux = fc_snr * np.array(noise_avg[n, :, 0])
+        
+            if matrix_adi_ref is None:
+                cube_fc = cube.copy()
+            else:
+                cube_fc = cube.copy()
+                cube_adi_fc = np.copy(algo_dict['cube_ref'][NAdiRef:NRefT, :, :])
+                cube_fc = np.vstack((cube_fc, cube_adi_fc))
+                parangles = np.concatenate((angle_list, angle_adi_ref))
+        
+            for d in range(0, nbr_dist):
+                cube_fc = cube_inject_companions(
+                    cube_fc,
+                    psf_template,
+                    parangles,
+                    flux[d],
+                    rad_dists=rad_dist[d],
+                    theta=br * angle_branch + theta,
+                    nproc=nproc,
+                    imlib=imlib,
+                    interpolation=interpolation,
+                    verbose=False,
+                    )
+        
+            if matrix_adi_ref is not None:
+                algo_dict['cube_ref'][NAdiRef:NRefT, :, :] = cube_fc[n:, :, :]
+                cube_fc = cube_fc[0:n, :, :]
+            
+        
+            for d in range(0, nbr_dist):
+                y = cy + rad_dist[d] * \
+                    np.sin(np.deg2rad(br * angle_branch + theta))
+                x = cx + rad_dist[d] * \
+                    np.cos(np.deg2rad(br * angle_branch + theta))
+                fc_map = frame_inject_companion(
+                    fc_map, psf_template, y, x, flux[d], imlib, interpolation
+                    )
+                fcy = y
+                fcx = x
+                loc[d, br ,:] = np.array([fcy, fcx])
+
+            if verbose:
+                msg2 = "Fake companions injected in branch {} "
+                print(msg2.format(br + 1))
+                timing(start_time)
+    
+            algo_dict['ncomp'] = ncomp[n]
+            if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
+                _, res_cube_fc[n, br, : ,:, :], frames_fc[n, br, :, :] = algo(cube=cube_fc, 
+                    angle_list=angle_list, fwhm=fwhm_med, verbose=verbose, 
+                    full_output = True, **algo_dict)
+            elif algo_name == 'pca_annular_multi_epoch' or algo_name == 'pca_annular_corr_multi_epoch':
+                frames_fc[n, br, :, :], res_cube_fc[n, br, : ,:, :] = algo(cube=cube_fc, 
+                    angle_list=angle_list, fwhm=fwhm_med, verbose=verbose, 
+                    full_output = True, **algo_dict)
+        
+
+            injected_flux = apertureOne_flux(fc_map, loc[:,br,0], loc[:,br,1], fwhm_med)
+            all_injected_flux[:,br] = injected_flux
+            recovered_flux[n,:,br] = apertureOne_flux(
+                (frames_fc[n, br, :, :] - frames_no_fc[n, :, :]), loc[:,br,0], loc[:,br,1], fwhm_med)
+                
+            for d in range(0, nbr_dist):
+                thruput[n,d,br] = recovered_flux[n,d,br]/injected_flux[d]
+            thruput[np.where(thruput < 0)] = 0
+
+            
+    thruput = np.nanmean(thruput[:,:,:], axis = 2)
+    thru_cont_avg = np.zeros((nnpcs, nbr_dist, 3))
+    thru_cont_avg[:,:,0] = thruput
+    if isinstance(starphot, float) or isinstance(starphot, int):
+        thru_cont_avg[:,:,1] = (
+            (sigma * noise_avg[:,:,0] + np.abs(noise_avg[:,:,1])) / thru_cont_avg[:,:,0]
+        ) / starphot
+    else:
+        thru_cont_avg[:,:,1] = (
+            (sigma * noise_avg[:,:,0] + np.abs(noise_avg[:,:,1])) / thru_cont_avg[:,:,0]
+        ) / np.median(starphot)
+    if 'multi_epoch' not in algo_name:
+        thru_cont_avg[:,:,2] = ncomp.reshape(ncomp.shape[0],1)
+        
+    return (thru_cont_avg, rad_dist)
+
+
+
+def contrast_multi_epoch(
+    cube,
+    angle_list,
+    psf_template,
+    fwhm,
+    distance,
+    pxscale,
+    starphot,
+    algo,
+    nbr_epochs,
+    through_thresh=0.1,
+    sigma=5,
+    nbranch=1,
+    theta=0,
+    inner_rad=1,
+    fc_rad_sep=3,
+    noise_sep=1,
+    wedge=(0, 360),
+    fc_snr=50,
+    cube_delimiter=None,
+    cube_ref_delimiter=None,
+    epoch_indices=None,
+    student=True,
+    transmission=None,
+    dpi=vip_figdpi,
+    debug=False,
+    verbose=True,
+    full_output=False,
+    save_plot=None,
+    object_name=None,
+    frame_size=None,
+    fix_y_lim=(),
+    figsize=vip_figsize,
+    algo_class=None,
+    matrix_adi_ref=None,
+    angle_adi_ref=None,
+    **algo_dict,
+    ):
+
+    results = []
+    algo_dict_copy = algo_dict.copy()
+    
+    if isinstance(cube_delimiter, list):
+        cube_delimiter = np.array(cube_delimiter)
+    if cube_delimiter.shape[0] == nbr_epochs*2:
+        R = int(1)
+    else:
+        R = int(0)
+    
+    for N in range(0, nbr_epochs):
+        algo_dict = algo_dict_copy.copy()
+        cube_adi = cube[cube_delimiter[N+R*N]:cube_delimiter[N+R*N+1]]
+        this_angle_list = angle_list[cube_delimiter[N+R*N]:cube_delimiter[N+R*N+1]]
+        if cube_ref_delimiter is not None:
+            cube_ref_delimiter = np.array(cube_ref_delimiter)
+            Rr = int(0)
+            if cube_ref_delimiter.shape[0] == nbr_epochs*2:
+                Rr = int(1)
+            algo_dict['cube_ref'] = algo_dict['cube_ref'][cube_ref_delimiter[N+Rr*N]:
+                                             cube_ref_delimiter[N+Rr*N+1],:,:]
+                
+        if algo.__name__ == 'pca_annular_corr':
+            if epoch_indices is not None:
+                epoch_indices = np.array(epoch_indices)
+                Re = int(0)
+                if epoch_indices.shape[0] == nbr_epochs*2:
+                    Re = int(1)
+                algo_dict['epoch_indices'] = epoch_indices[N+Re*N:N+Re*N+2]
+            else:
+                algo_dict['epoch_indices'] = (cube_delimiter[N+R*N],cube_delimiter[N+R*N+1])
+            
+        if 'delta_rot' in algo_dict.keys():
+            if isinstance(algo_dict['delta_rot'], list):
+                algo_dict['delta_rot'] = np.array(algo_dict['delta_rot'])
+            if isinstance(algo_dict['delta_rot'], np.ndarray):
+                if algo_dict['delta_rot'].shape[0] != nbr_epochs:
+                    raise ValueError('delta_rot has wrong length')
+                algo_dict['delta_rot'] = algo_dict['delta_rot'][N]
+        
+        
+        try:
+            res = contrast_step_dist(
+                cube_adi,
+                this_angle_list,
+                psf_template,
+                fwhm,
+                distance,
+                pxscale,
+                starphot,
+                algo,
                 through_thresh,
                 sigma,
                 nbranch,
