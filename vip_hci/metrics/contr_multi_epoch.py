@@ -927,6 +927,9 @@ def contrast_step_dist(
         step = np.array(step, dtype = int)
         step = np.sort(step)
         TotalSteps = NbrImages/step
+    elif step == 'max':
+        step = np.array([NbrImages], dtype = int)
+        TotalSteps = NbrImages/step
     else:
         raise ValueError("Step must be an int, list, numpy array or equal to 'auto'")
     NbrStepValue = step.shape[0]
@@ -1037,6 +1040,7 @@ def contrast_step_dist(
         
     loc = np.zeros((nbr_dist, nbranch, 2))
     thruput_avg_tmp = np.zeros((nnpcs, nbr_dist, nbranch))
+    all_injected_flux = np.zeros((nbr_dist, nbranch))
     for br in range(nbranch):
         
         if matrix_adi_ref is not None:
@@ -1104,6 +1108,7 @@ def contrast_step_dist(
         
 
         injected_flux = apertureOne_flux(fc_map, loc[:,br,0], loc[:,br,1], fwhm_med)
+        all_injected_flux[:,br] = injected_flux
         recovered_flux_avg = np.array([apertureOne_flux(
             (frames_fc[n, br, :, :] - frames_no_fc[n, :, :]), loc[:,br,0], loc[:,br,1], fwhm_med
         ) for n in range(0, nnpcs)])
@@ -1217,9 +1222,12 @@ def contrast_step_dist(
                 (final_frames_br[i,d,br,:,:] - final_frame[i,d,:,:]), loc[d,br,0], loc[d,br,1], fwhm_med) 
                                             for br in range(0, nbranch)]).reshape(nbranch)
     
+    
     final_thruput = np.zeros_like(final_recovered_fluxes)
     for d in range(0, nbr_dist):
-        final_thruput[:,d,:] = final_recovered_fluxes[:,d,:] / injected_flux[d]
+        print(injected_flux[d])
+        for br in range(nbranch):
+            final_thruput[:,d,br] = final_recovered_fluxes[:,d,br] / all_injected_flux[d, br]
     final_thruput[np.where(final_thruput < 0)] = 0
     final_result = np.zeros((NbrStepValue, nbr_dist, 2))
     for i in range(0,NbrStepValue):
@@ -1245,7 +1253,8 @@ def contrast_step_dist(
         thru_cont_avg[:,:,1] = (
             (sigma * noise_avg[:,:,0] + np.abs(noise_avg[:,:,1])) / thru_cont_avg[:,:,0]
         ) / np.median(starphot)
-    thru_cont_avg[:,:,2] = ncomp.reshape(ncomp.shape[0],1)
+    if 'multi_epoch' not in algo_name:
+        thru_cont_avg[:,:,2] = ncomp.reshape(ncomp.shape[0],1)
         
     return (thru_cont_avg, final_result, rad_dist, step, BestComp, final_frame, final_frames_br)
 
