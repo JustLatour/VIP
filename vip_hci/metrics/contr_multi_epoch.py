@@ -775,6 +775,7 @@ def contrast_step_dist_opt(
     noise_sep=1,
     wedge=(0, 360),
     fc_snr=50,
+    flux = None,
     student=True,
     transmission=None,
     dpi=vip_figdpi,
@@ -1051,7 +1052,9 @@ def contrast_step_dist_opt(
         fc_map = np.ones_like(cube[0]) * 1e-6
         fcy = 0
         fcx = 0
-        flux = fc_snr * np.array([np.min(noise_avg[:, d, 0]) for d in range(0,nbr_dist)])
+        
+        if flux is not None:
+            flux = fc_snr * np.array([np.min(noise_avg[:, d, 0]) for d in range(0,nbr_dist)])
         
         if matrix_adi_ref is None:
             cube_fc = cube.copy()
@@ -1280,6 +1283,7 @@ def contrast_multi_epoch_opt(
     noise_sep=1,
     wedge=(0, 360),
     fc_snr=50,
+    flux = None,
     cube_delimiter=None,
     cube_ref_delimiter=None,
     epoch_indices=None,
@@ -1367,6 +1371,7 @@ def contrast_multi_epoch_opt(
                 noise_sep,
                 wedge,
                 fc_snr,
+                flux,
                 student,
                 transmission,
                 dpi,
@@ -1418,6 +1423,7 @@ def contrast_step_dist(
     noise_sep=1,
     wedge=(0, 360),
     fc_snr=50,
+    flux = None,
     student=True,
     transmission=None,
     dpi=vip_figdpi,
@@ -1659,7 +1665,8 @@ def contrast_step_dist(
             fc_map = np.ones_like(cube[0]) * 1e-6
             fcy = 0
             fcx = 0
-            flux = fc_snr * np.array(noise_avg[n, :, 0])
+            if flux is not None:
+                flux = fc_snr * np.array(noise_avg[n, :, 0])
         
             if matrix_adi_ref is None:
                 cube_fc = cube.copy()
@@ -1763,6 +1770,7 @@ def contrast_multi_epoch(
     noise_sep=1,
     wedge=(0, 360),
     fc_snr=50,
+    flux = None,
     cube_delimiter=None,
     cube_ref_delimiter=None,
     epoch_indices=None,
@@ -1843,6 +1851,7 @@ def contrast_multi_epoch(
                 noise_sep,
                 wedge,
                 fc_snr,
+                flux,
                 student,
                 transmission,
                 dpi,
