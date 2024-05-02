@@ -1905,6 +1905,7 @@ def contrast_multi_epoch_walk(
     fc_rad_sep=3,
     approximation = 0,
     switch = 3,
+    flux_increase = False,
     noise_sep=1,
     wedge=(0, 360),
     fc_snr=50,
@@ -2177,7 +2178,9 @@ def contrast_multi_epoch_walk(
         
             
         snr_progress = []
+        flux_progress = []
         snr_progress.append(np.max(snr_flux_basis[:, 0]))
+        flux_progress.append(snr_flux_basis[np.argmax(snr_flux_basis[:, 0]),1])
         
         #Optimize: when more than half values in Imporvements the same,
         #start simply selecting the first one that's better as an iteration
@@ -2217,20 +2220,52 @@ def contrast_multi_epoch_walk(
                     snr_flux_test[i] = get_snr(this_frame, 
                                             y_source, x_source, fwhm, fmerit)
                 
-                #print(snr_flux_test)
-                BestInd = np.argmax(snr_flux_test[:, 0])
-                Improvements[N,0:2] = snr_flux_test[BestInd,:]
-                Improvements[N,2] = ncomp[BestInd]
+                if flux_increase:
+                    sorted_ind = np.argsort(snr_flux_test[:,0])[::-1]
+                    for ind in sorted_ind:
+                        if snr_flux_test[ind,0] <= snr_progress[-1]:
+                            break
+                        if snr_flux_test[ind,1] <= flux_progress[-1]:
+                            continue
+                        Improvements[N,0:2] = snr_flux_test[ind,:]
+                        Improvements[N,2] = ncomp[ind]
+                        break
+                else:
+                    BestInd = np.argmax(snr_flux_test[:, 0])
+                    Improvements[N,0:2] = snr_flux_test[BestInd,:]
+                    Improvements[N,2] = ncomp[BestInd]
                 
                 if approximation == 3:
                     if Improvements[N,0] > snr_progress[-1]:
-                        I += 1
-                        snr_progress.append(Improvements[N,0])
-                        Optimal_comp[N] = Improvements[N,2]
-                        previous_N = N
-                        print(snr_progress[-1])
+                        if flux_increase:
+                            #sorted_ind = np.argsort(snr_flux_test[:,0])[::-1]
+                            found = False
+                            for ind in sorted_ind:
+                                if snr_flux_test[ind,0] <= snr_progress[-1]:
+                                    break
+                                if snr_flux_test[ind,1] <= flux_progress[-1]:
+                                    continue
+                                found = True
+                                I += 1
+                                snr_progress.append(snr_flux_test[ind,0])
+                                flux_progress.append(snr_flux_test[ind,1])
+                                Optimal_comp[N] = ncomp[ind]
+                                previous_N = N
+                                if verbose:
+                                    print(snr_progress[-1])
+                                break
+                            if found == False:
+                                no_found += 1
+                        else:
+                            I += 1
+                            snr_progress.append(Improvements[N,0])
+                            Optimal_comp[N] = Improvements[N,2]
+                            previous_N = N
+                            if verbose:
+                                print(snr_progress[-1])
                     else:
                         no_found += 1
+                        
             if no_found == nbr_epochs:
                 break
             if approximation == 0 or approximation == 1:
@@ -2239,12 +2274,20 @@ def contrast_multi_epoch_walk(
                 if Best_snr <= snr_progress[-1]:
                     print('Done after {}'.format(I))
                     break
-            
+                
                 Best_N = np.argmax(Improvements[:, 0])
+                
+                if flux_increase:
+                    if Improvements[Best_N,1]<=flux_progress[-1]:
+                        print('Done after {}'.format(I))
+                        break
+                
                 previous_N = Best_N
                 Optimal_comp[Best_N] = Improvements[Best_N, 2]
                 snr_progress.append(Best_snr)
-                print(snr_progress[-1])
+                flux_progress.append(Improvements[Best_N,1])
+                if verbose:
+                    print(snr_progress[-1])
                 
                 if approximation == 1:
                     for j in range(nbr_epochs):
@@ -2271,7 +2314,7 @@ def contrast_multi_epoch_walk(
         Best_frame = np.median(res_cube_a, axis = 0)
         
         return (Optimal_comp, Optimal_comp_basis, snr_flux_basis, snr_progress,
-                Best_frame_basis, Best_frame)
+                flux_progress, Best_frame_basis, Best_frame)
     
     
     # We crop the PSF and check if PSF has been normalized (so that flux in
