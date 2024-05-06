@@ -1024,6 +1024,9 @@ def contrast_step_dist_opt(
     )
     
     
+    if np.isscalar(fc_snr):
+        fc_snr = np.array([fc_snr]*nbr_dist)
+    
     # Initialize the fake companions
     angle_branch = angular_range / nbranch
     
@@ -1054,7 +1057,7 @@ def contrast_step_dist_opt(
         fcx = 0
         
         if flux is None:
-            flux = fc_snr * np.array([np.percentile(noise_avg[:, d, 0], 20) for d in range(0,nbr_dist)])
+            flux = np.array(fc_snr) * np.array([np.percentile(noise_avg[:, d, 0], 20) for d in range(0,nbr_dist)])
         
         if matrix_adi_ref is None:
             cube_fc = cube.copy()
@@ -1652,6 +1655,9 @@ def contrast_step_dist(
     recovered_flux = np.zeros((nnpcs, nbr_dist, nbranch))
     all_injected_flux = np.zeros((nbr_dist, nbranch))
     
+    if np.isscalar(fc_snr):
+        fc_snr = np.array([fc_snr]*nbr_dist)
+    
     
     for n in range(0, nnpcs):
         for br in range(nbranch):
@@ -1665,7 +1671,7 @@ def contrast_step_dist(
             fcy = 0
             fcx = 0
             if flux is None:
-                flux = fc_snr * np.array(noise_avg[n, :, 0])
+                flux = np.array(fc_snr) * np.array(noise_avg[n, :, 0])
             print(flux)
         
             if matrix_adi_ref is None:
@@ -2354,6 +2360,9 @@ def contrast_multi_epoch_walk(
         
     snr_basis = np.zeros((nnpcs, nbr_dist, nbranch))
     
+    if np.isscalar(fc_snr):
+        fc_snr = np.array([fc_snr]*nbr_dist)
+    
     loc = np.zeros((nbr_dist, nbranch, 2))
     thruput_basis = np.zeros((nnpcs, nbr_dist, nbranch))
     recovered_flux_basis = np.zeros((nnpcs, nbr_dist, nbranch))
@@ -2370,7 +2379,7 @@ def contrast_multi_epoch_walk(
         fcx = 0
         
         if flux is None:
-            flux = fc_snr * np.array([np.percentile(noise_avg[:, d, 0], 20) for d in range(0,nbr_dist)])
+            flux = np.array(fc_snr) * np.array([np.percentile(noise_avg[:, d, 0], 20) for d in range(0,nbr_dist)])
         
         print(flux)
         
@@ -3017,7 +3026,7 @@ def contrast_multi_epoch_walk2(
     
     #minimizing noise in one half of annulus? look at imapct on source on other side
     
-    #add option to kee pSNR above a threshold in contrast optimization
+    #add option to keep SNR above a threshold in contrast optimization
     
     #add approximatin parameters in optimization of contrast
     
@@ -3208,6 +3217,9 @@ def contrast_multi_epoch_walk2(
     recovered_flux_basis = np.zeros((nnpcs, nbr_dist, nbranch))
     all_injected_flux = np.zeros((nbr_dist, nbranch))
     
+    if np.isscalar(fc_snr):
+        fc_snr = np.array([fc_snr]*nbr_dist)
+    
     thruput_per = np.zeros((nnpcs, nbr_dist, nbr_per))
     this_flux = flux
     all_fluxes = np.zeros((nbr_dist, nbr_per))
@@ -3225,7 +3237,7 @@ def contrast_multi_epoch_walk2(
             fcx = 0
         
             if this_flux is None:
-                flux = fc_snr * np.array([np.percentile(noise_avg[:, d, 0], per) for d in range(0,nbr_dist)])
+                flux = np.array(fc_snr) * np.array([np.percentile(noise_avg[:, d, 0], per) for d in range(0,nbr_dist)])
                 
             if br == 0:
                 all_fluxes[:,i] = flux
@@ -3366,7 +3378,7 @@ def contrast_multi_epoch_walk2(
     for k,n in enumerate(ncomp):
         for d in range(nbr_dist):
             this_curve = thruput_per[k,d,:]
-            corrected_thru = interpol(fc_snr*noise_avg[k,d,0], 
+            corrected_thru = interpol(fc_snr[d]*noise_avg[k,d,0], 
                                       all_fluxes[d,:], this_curve)
             
             if corrected_thru < 0 or corrected_thru > 1:
@@ -3436,7 +3448,7 @@ def contrast_multi_epoch_walk2(
     while I < iterations:
         Improvements = np.zeros((nbr_epochs,nbr_dist,3))
         
-        no_found = np.zeros(nbr_epochs)
+        no_found = np.zeros(nbr_dist)
         for N in range(nbr_epochs):
             
             for d in range(nbr_dist):
@@ -3463,7 +3475,7 @@ def contrast_multi_epoch_walk2(
                         these_comp.append(ncomp[this_comp])
                     
                     this_frame = np.median(res_cube_a, axis = 0)
-                    this_frames_fc = np.median(res_cube_fc_a, axis = 1)
+                    #this_frames_fc = np.median(res_cube_fc_a, axis = 1)
                     
                     this_noise, this_mean = noise_dist(this_frame, rad_dist[d], fwhm_med, wedge, 
                                         False, debug)[0]
@@ -3505,7 +3517,7 @@ def contrast_multi_epoch_walk2(
                     for p in range(0, nbr_per):
                         this_curve[p] = interpol(avg_comp, 
                             [ncomp[n_index], ncomp[n_index+1]], curves[:,p])
-                    corrected_thru = interpol(fc_snr*this_noise, 
+                    corrected_thru = interpol(fc_snr[d]*this_noise, 
                             all_fluxes[d,:], this_curve)
                     
                     this_avg_thruput = corrected_thru
