@@ -1024,9 +1024,6 @@ def contrast_step_dist_opt(
     )
     
     
-    if np.isscalar(fc_snr):
-        fc_snr = np.array([fc_snr]*nbr_dist)
-    
     # Initialize the fake companions
     angle_branch = angular_range / nbranch
     
@@ -1057,7 +1054,7 @@ def contrast_step_dist_opt(
         fcx = 0
         
         if flux is None:
-            flux = np.array(fc_snr) * np.array([np.percentile(noise_avg[:, d, 0], 20) for d in range(0,nbr_dist)])
+            flux = fc_snr * np.array([np.percentile(noise_avg[:, d, 0], 20) for d in range(0,nbr_dist)])
         
         if matrix_adi_ref is None:
             cube_fc = cube.copy()
@@ -1159,11 +1156,11 @@ def contrast_step_dist_opt(
             Thru_Cont[i][s,:,:,0] = [np.nanmean(Throughput[i][s,n,:,:], axis = 1) for n in range(0, nnpcs)]
             if isinstance(starphot, float) or isinstance(starphot, int):
                 Thru_Cont[i][s,:,:,1] = (
-                    (sigma * noise_samp_sm[i][s] + res_lev_samp_sm[i][s]) / Thru_Cont[i][s,:,:,0]
+                    (sigma * noise_samp_sm[i][s]) / Thru_Cont[i][s,:,:,0]
                 ) / starphot
             else:
                 Thru_Cont[i][s,:,:,1] = (
-                    (sigma * noise_samp_sm[i][s] + res_lev_samp_sm[i][s]) / Thru_Cont[i][s,:,:,0]
+                    (sigma * noise_samp_sm[i][s]) / Thru_Cont[i][s,:,:,0]
                 ) / np.median(starphot)
 
 
@@ -1239,11 +1236,11 @@ def contrast_step_dist_opt(
         final_result[i,:,0] = np.nanmean(final_thruput[i,:,:], axis = 1)
         if isinstance(starphot, float) or isinstance(starphot, int):
             final_result[i,:,1] = (
-                (sigma * final_noise[i,:] + final_mean_res[i,:]) / final_result[i,:,0]
+                (sigma * final_noise[i,:]) / final_result[i,:,0]
             ) / starphot
         else:
             final_result[i,:,1] = (
-                (sigma * final_noise[i,:] + final_mean_res[i,:]) / final_result[i,:,0]
+                (sigma * final_noise[i,:]) / final_result[i,:,0]
             ) / np.median(starphot)
             
     
@@ -1252,11 +1249,11 @@ def contrast_step_dist_opt(
     thru_cont_avg[:,:,0] = thruput_avg
     if isinstance(starphot, float) or isinstance(starphot, int):
         thru_cont_avg[:,:,1] = (
-            (sigma * noise_avg[:,:,0] + np.abs(noise_avg[:,:,1])) / thru_cont_avg[:,:,0]
+            (sigma * noise_avg[:,:,0]) / thru_cont_avg[:,:,0]
         ) / starphot
     else:
         thru_cont_avg[:,:,1] = (
-            (sigma * noise_avg[:,:,0] + np.abs(noise_avg[:,:,1])) / thru_cont_avg[:,:,0]
+            (sigma * noise_avg[:,:,0]) / thru_cont_avg[:,:,0]
         ) / np.median(starphot)
     if 'multi_epoch' not in algo_name and not isinstance(ncomp, tuple) and ncomp.shape[0] != 1:
         thru_cont_avg[:,:,2] = ncomp.reshape(ncomp.shape[0])
@@ -1655,9 +1652,6 @@ def contrast_step_dist(
     recovered_flux = np.zeros((nnpcs, nbr_dist, nbranch))
     all_injected_flux = np.zeros((nbr_dist, nbranch))
     
-    if np.isscalar(fc_snr):
-        fc_snr = np.array([fc_snr]*nbr_dist)
-    
     
     for n in range(0, nnpcs):
         for br in range(nbranch):
@@ -1671,7 +1665,7 @@ def contrast_step_dist(
             fcy = 0
             fcx = 0
             if flux is None:
-                flux = np.array(fc_snr) * np.array(noise_avg[n, :, 0])
+                flux = fc_snr * np.array(noise_avg[n, :, 0])
             print(flux)
         
             if matrix_adi_ref is None:
@@ -1745,11 +1739,11 @@ def contrast_step_dist(
     thru_cont_avg[:,:,0] = thruput
     if isinstance(starphot, float) or isinstance(starphot, int):
         thru_cont_avg[:,:,1] = (
-            (sigma * noise_avg[:,:,0] + np.abs(noise_avg[:,:,1])) / thru_cont_avg[:,:,0]
+            (sigma * noise_avg[:,:,0]) / thru_cont_avg[:,:,0]
         ) / starphot
     else:
         thru_cont_avg[:,:,1] = (
-            (sigma * noise_avg[:,:,0] + np.abs(noise_avg[:,:,1])) / thru_cont_avg[:,:,0]
+            (sigma * noise_avg[:,:,0]) / thru_cont_avg[:,:,0]
         ) / np.median(starphot)
     if 'multi_epoch' not in algo_name and not isinstance(ncomp, tuple) and ncomp.shape[0] != 1:
         thru_cont_avg[:,:,2] = ncomp.reshape(ncomp.shape[0],1)
@@ -2360,9 +2354,6 @@ def contrast_multi_epoch_walk(
         
     snr_basis = np.zeros((nnpcs, nbr_dist, nbranch))
     
-    if np.isscalar(fc_snr):
-        fc_snr = np.array([fc_snr]*nbr_dist)
-    
     loc = np.zeros((nbr_dist, nbranch, 2))
     thruput_basis = np.zeros((nnpcs, nbr_dist, nbranch))
     recovered_flux_basis = np.zeros((nnpcs, nbr_dist, nbranch))
@@ -2379,7 +2370,7 @@ def contrast_multi_epoch_walk(
         fcx = 0
         
         if flux is None:
-            flux = np.array(fc_snr) * np.array([np.percentile(noise_avg[:, d, 0], 20) for d in range(0,nbr_dist)])
+            flux = fc_snr * np.array([np.percentile(noise_avg[:, d, 0], 20) for d in range(0,nbr_dist)])
         
         print(flux)
         
@@ -2495,11 +2486,11 @@ def contrast_multi_epoch_walk(
     thru_cont_basis[:,:,0] = thruput_basis
     if isinstance(starphot, float) or isinstance(starphot, int):
         thru_cont_basis[:,:,1] = (
-            (sigma * noise_avg[:,:,0] + np.abs(noise_avg[:,:,1])) / thru_cont_basis[:,:,0]
+            (sigma * noise_avg[:,:,0]) / thru_cont_basis[:,:,0]
         ) / starphot
     else:
         thru_cont_basis[:,:,1] = (
-            (sigma * noise_avg[:,:,0] + np.abs(noise_avg[:,:,1])) / thru_cont_basis[:,:,0]
+            (sigma * noise_avg[:,:,0]) / thru_cont_basis[:,:,0]
         ) / np.median(starphot)
     if 'multi_epoch' not in algo_name:
         thru_cont_basis[:,:,2] = ncomp.reshape(ncomp.shape[0],1)
@@ -2600,11 +2591,11 @@ def contrast_multi_epoch_walk(
                     
                     if isinstance(starphot, float) or isinstance(starphot, int):
                         this_contrast = (
-                            (sigma * this_noise + np.abs(this_mean)) / this_avg_thruput
+                            (sigma * this_noise) / this_avg_thruput
                         ) / starphot
                     else:
                         this_contrast = (
-                            (sigma * this_noise + np.abs(this_mean)) / this_avg_thruput
+                            (sigma * this_noise) / this_avg_thruput
                         ) / np.median(starphot)
                     
                     
@@ -3026,7 +3017,7 @@ def contrast_multi_epoch_walk2(
     
     #minimizing noise in one half of annulus? look at imapct on source on other side
     
-    #add option to keep SNR above a threshold in contrast optimization
+    #add option to kee pSNR above a threshold in contrast optimization
     
     #add approximatin parameters in optimization of contrast
     
@@ -3218,7 +3209,7 @@ def contrast_multi_epoch_walk2(
     all_injected_flux = np.zeros((nbr_dist, nbranch))
     
     if np.isscalar(fc_snr):
-        fc_snr = np.array([fc_snr]*nbr_dist)
+        fc_snr = np.array(fc_snr)
     
     thruput_per = np.zeros((nnpcs, nbr_dist, nbr_per))
     this_flux = flux
@@ -3375,6 +3366,7 @@ def contrast_multi_epoch_walk2(
     #Correction on thruput done here
     thru_cont_basis[:,:,0] = thruput_basis
     
+    #Try it without this correction, as we use flux close to SNR = 10?...
     for k,n in enumerate(ncomp):
         for d in range(nbr_dist):
             this_curve = thruput_per[k,d,:]
@@ -3387,11 +3379,11 @@ def contrast_multi_epoch_walk2(
 
     if isinstance(starphot, float) or isinstance(starphot, int):
         thru_cont_basis[:,:,1] = (
-            (sigma * noise_avg[:,:,0] + np.abs(noise_avg[:,:,1])) / thru_cont_basis[:,:,0]
+            (sigma * noise_avg[:,:,0]) / thru_cont_basis[:,:,0]
         ) / starphot
     else:
         thru_cont_basis[:,:,1] = (
-            (sigma * noise_avg[:,:,0] + np.abs(noise_avg[:,:,1])) / thru_cont_basis[:,:,0]
+            (sigma * noise_avg[:,:,0]) / thru_cont_basis[:,:,0]
         ) / np.median(starphot)
     if 'multi_epoch' not in algo_name:
         thru_cont_basis[:,:,2] = ncomp.reshape(ncomp.shape[0],1)
@@ -3528,11 +3520,11 @@ def contrast_multi_epoch_walk2(
                     
                     if isinstance(starphot, float) or isinstance(starphot, int):
                         this_contrast = (
-                            (sigma * this_noise + np.abs(this_mean)) / this_avg_thruput
+                            (sigma * this_noise) / this_avg_thruput
                         ) / starphot
                     else:
                         this_contrast = (
-                            (sigma * this_noise + np.abs(this_mean)) / this_avg_thruput
+                            (sigma * this_noise) / this_avg_thruput
                         ) / np.median(starphot)
                     
                     
@@ -3593,7 +3585,1278 @@ def contrast_multi_epoch_walk2(
             print('Done after {}'.format(I))
             break
     
-    return Optimal_comp, Optimal_comp_basis, Contrast_progress, thruput_per
+    return Optimal_comp, Optimal_comp_basis, Contrast_progress, 
+
+
+
+
+def contrast_multi_epoch_walk3(
+    cube,
+    angle_list,
+    psf_template,
+    fwhm,
+    distance,
+    pxscale,
+    starphot,
+    algo,
+    nbr_cubes,
+    step_walk,
+    iterations=5,
+    through_thresh=0.1,
+    through_up=True,
+    snr_thresh=0,
+    sigma=5,
+    nbranch=1,
+    theta=0,
+    inner_rad=1,
+    fc_rad_sep=3,
+    approximation = 0,
+    switch = 3,
+    flux_increase = False,
+    noise_sep=1,
+    wedge=(0, 360),
+    fc_snr=50,
+    snr_target=8,
+    per_values = [70, 10],
+    flux = None,
+    cube_delimiter=None,
+    cube_ref_delimiter=None,
+    epoch_indices=None,
+    student=True,
+    transmission=None,
+    dpi=vip_figdpi,
+    debug=False,
+    verbose=True,
+    full_output=False,
+    algo_class=None,
+    matrix_adi_ref=None,
+    angle_adi_ref=None,
+    source_xy = None,
+    exclude_negative_lobes=False,
+    fmerit = 'mean',
+    **algo_dict,
+):
+    """
+    -step: contains the number of image in each epoch. If an integer, all epoch
+    will have the same number of images
+    
+    -nbr_cubes: the number of subdivisions in the processing of the cube
+    
+    -through_thresh:Threshold put on thhe throughput for it to be considered valid
+    if through_tresh is 'auto', the threshold is chosen as the throughput of the
+    best contrast found in the basis of ncomp tested
+    
+    -through_up: if True, any contrast value that improves upon the last must also
+    increase (or maintain) the throughput to be considered valid
+    
+    -per_values: percentile values for the fluxes of the fake companions that 
+    are injected in the data cube. It then allows for interpolation of the
+    throughput for any injected flux
+    
+    -approximation: Determines the level of approximation to optimize the contrast
+    or the snr depending on the mode.
+    approximation == 0 only recommended for small datasets, or a small number of 
+    epochs. 
+    
+    -flux: Fix the flux injected for the fake companions. Takes precedence over
+    per_values if it is not None.
+    
+    -iterations: Maximum number of iterations the algorithm will go through
+    
+    -source_xy : if it is not None, then the function is in snr optimization
+    mode. It will try to find the component that increases the snr of the source
+    given.
+    
+    -flux_increase: if source_xy is not None and flux_increase is True, any 
+    change of components that increases the snr must also increase the flux of 
+    the source.
+    """
+    
+    from ..metrics import snr
+    def get_snr(frame, y, x, fwhm, fmerit):
+        """
+        """
+        if fmerit == 'max':
+            yy, xx = disk((y, x), fwhm / 2.)
+            res = [snr(frame, (x_, y_), fwhm, plot=False, verbose=False,
+                       exclude_negative_lobes=exclude_negative_lobes,
+                       full_output=True)
+                   for y_, x_ in zip(yy, xx)]
+            snr_pixels = np.array(res, dtype=object)[:, -1]
+            fluxes = np.array(res, dtype=object)[:, 2]
+            argm = np.argmax(snr_pixels)
+            # integrated fluxes for the max snr
+            return np.max(snr_pixels), fluxes[argm]
+
+        elif fmerit == 'px':
+            res = snr(frame, (x, y), fwhm, plot=False, verbose=False,
+                      exclude_negative_lobes=exclude_negative_lobes,
+                      full_output=True)
+            snrpx = res[-1]
+            fluxpx = np.array(res, dtype=object)[2]
+            # integrated fluxes for the given px
+            return snrpx, fluxpx
+
+        elif fmerit == 'mean':
+            yy, xx = disk((y, x), fwhm / 2.)
+            res = [snr(frame, (x_, y_), fwhm, plot=False, verbose=False,
+                       exclude_negative_lobes=exclude_negative_lobes,
+                       full_output=True) for y_, x_
+                   in zip(yy, xx)]
+            snr_pixels = np.array(res, dtype=object)[:, -1]
+            fluxes = np.array(res, dtype=object)[:, 2]
+            # mean of the integrated fluxes (shifting the aperture)
+            return np.mean(snr_pixels), np.mean(fluxes)
+        
+    def interpol(x, xp, yp):
+        xp = np.array(xp)
+        yp = np.array(yp)
+        indices = np.argsort(xp)
+        xp = xp[indices]
+        yp = yp[indices]
+        if np.isscalar(x):
+            x = np.array([x])
+        else:
+            x = np.array(x)
+        for value in x:
+            if value < xp[0]:
+                slope = (yp[1]-yp[0])/(xp[1]-xp[0])
+                return yp[0]+(value-xp[0])*slope
+            elif value > xp[-1]:
+                slope = (yp[-1]-yp[-2])/(xp[-1]-xp[-2])
+                return yp[-1]+(value-xp[-1])*slope
+            else:
+                for i, v in enumerate(xp):
+                    if value > v:
+                        continue
+                    slope = (yp[i]-yp[i-1])/(xp[i]-xp[i-1])
+                    return yp[i-1]+(value-xp[i-1])*slope
+        
+    #-----------------------------------------------------------------
+
+    if cube.ndim != 3 and cube.ndim != 4:
+        raise TypeError("The input array is not a 3d or 4d cube")
+    if cube.ndim == 3 and (cube.shape[0] != angle_list.shape[0]):
+        raise TypeError("Input parallactic angles vector has wrong length")
+    if cube.ndim == 4 and (cube.shape[1] != angle_list.shape[0]):
+        raise TypeError("Input parallactic angles vector has wrong length")
+    if cube.ndim == 3 and psf_template.ndim != 2:
+        raise TypeError("Template PSF is not a frame (for ADI case)")
+    if cube.ndim == 4 and psf_template.ndim != 3:
+        raise TypeError("Template PSF is not a cube (for ADI+IFS case)")
+    if transmission is not None:
+        if len(transmission) != 2 and len(transmission) != cube.shape[0] + 1:
+            msg = "Wrong shape for transmission should be 2xn_rad or (nch+1) "
+            msg += "x n_rad, instead of {}".format(transmission.shape)
+            raise TypeError(msg)
+
+    if isinstance(fwhm, (np.ndarray, list)):
+        fwhm_med = np.median(fwhm)
+    else:
+        fwhm_med = fwhm
+
+    if verbose:
+        start_time = time_ini()
+        if isinstance(starphot, float) or isinstance(starphot, int):
+            msg0 = "ALGO : {}, FWHM = {}, # BRANCHES = {}, SIGMA = {},"
+            msg0 += " STARPHOT = {}"
+            print(msg0.format(algo.__name__, fwhm_med, nbranch, sigma, starphot))
+        else:
+            msg0 = "ALGO : {}, FWHM = {}, # BRANCHES = {}, SIGMA = {}"
+            print(msg0.format(algo.__name__, fwhm_med, nbranch, sigma))
+            
+    if cube.ndim != 3 and cube.ndim != 4:
+        raise TypeError("The input array is not a 3d or 4d cube")
+
+    else:
+        if psf_template.shape[1] % 2 == 0:
+            raise ValueError("Only odd-sized PSF is accepted")
+        if not hasattr(algo, "__call__"):
+            raise TypeError("Parameter `algo` must be a callable function")
+        if not isinstance(inner_rad, int):
+            raise TypeError("inner_rad must be an integer")
+        angular_range = wedge[1] - wedge[0]
+        if nbranch > 1 and angular_range < 360:
+            msg = "Only a single branch is allowed when working on a wedge"
+            raise RuntimeError(msg)
+        
+    nproc = algo_dict.get("nproc", 1)
+    imlib = algo_dict.get("imlib", "vip-fft")
+    interpolation = algo_dict.get("interpolation", "lanczos4")
+    scaling = algo_dict.get("scaling", None)
+    ncomp = algo_dict.get("ncomp")
+    
+    nnpcs = len(ncomp)
+    
+    if np.isscalar(ncomp):
+        ncomp = np.array([ncomp])
+    elif isinstance(ncomp, list):
+        ncomp = np.array(ncomp)
+            
+    algo_name = algo.__name__
+    idx = algo.__module__.index('.', algo.__module__.index('.') + 1)
+    mod = algo.__module__[:idx]
+    tmp = __import__(mod, fromlist=[algo_name.upper()+'_Params'])    
+    algo_params = getattr(tmp, algo_name.upper()+'_Params')
+    
+    algo_supported = ['pca_annular', 'pca_annular_corr', 
+                      'pca_annular_multi_epoch', 'pca_annular_corr_multi_epoch']
+    if algo_name not in algo_supported:
+        raise ValueError("Algorithm is not supported")
+    
+    if isinstance(fwhm, (np.ndarray, list)):
+        fwhm_med = np.median(fwhm)
+    else:
+        fwhm_med = fwhm
+
+    if verbose:
+        start_time = time_ini()
+        
+    
+    if matrix_adi_ref is not None:
+        if 'cube_ref' in algo_dict.keys() and algo_dict['cube_ref'] is not None:
+            NAdiRef = algo_dict['cube_ref'].shape[0]
+            algo_dict['cube_ref'] = np.vstack((algo_dict['cube_ref'], matrix_adi_ref))
+        else:
+            NAdiRef = 0
+            algo_dict['cube_ref'] = matrix_adi_ref
+        NRefT = algo_dict['cube_ref'].shape[0]
+    
+    if 'annular' in algo_name:
+        if distance == 'auto':
+            radius_int = algo_dict['radius_int']
+            asize = algo_dict['asize']
+            y = cube.shape[2]
+            n_annuli = int((y / 2 - radius_int) / asize)
+            distance = np.array([radius_int+(asize/2) + i*asize for i in range(0, n_annuli)])/fwhm_med
+        elif isinstance(distance, float):
+            distance = np.array([distance])
+        elif isinstance(distance, list):
+            distance = np.array(distance)
+        else:
+            raise ValueError("distance parameter must be a float, a list or equal to 'auto'")
+            
+    SizeImage = int(cube[0].shape[1])
+    NbrImages = int(cube.shape[0])
+    
+    frames_basis_fc = np.zeros((nnpcs, nbranch, SizeImage, SizeImage), dtype = float)
+    frames_basis_no_fc = np.zeros((nnpcs, SizeImage, SizeImage), dtype = float)
+    res_cube_fc = np.zeros((nnpcs, nbranch, NbrImages, SizeImage, SizeImage), dtype = float)
+    res_cube_no_fc = np.zeros((nnpcs, NbrImages, SizeImage, SizeImage), dtype = float)    
+    
+    rad_dist = distance * fwhm_med
+    nbr_dist = distance.shape[0]
+    
+    results = []
+    algo_dict_copy = algo_dict.copy()
+    
+    if np.isscalar(step_walk):
+        nbr_epochs = int(NbrImages/step_walk)
+        step_walk = [step_walk]*nbr_epochs
+    else:
+        nbr_epochs = len(step_walk)
+    
+    if isinstance(cube_delimiter, list):
+        cube_delimiter = np.array(cube_delimiter)
+    if cube_delimiter.shape[0] == nbr_cubes*2:
+        R = int(1)
+    else:
+        R = int(0)
+
+    indices_epochs = np.zeros(nbr_epochs*2, dtype = int)
+    
+    previous_e = 0
+    for n in range(nbr_epochs):
+        indices_epochs[n*2:(n*2)+2] = (previous_e, previous_e + step_walk[n])
+        previous_e += step_walk[n]
+    
+    epoch_saved = np.copy(epoch_indices)
+        
+    for N in range(nbr_cubes):
+        algo_dict = algo_dict_copy.copy()
+        
+        if len(epoch_indices) == 2 and nbr_cubes > 1:
+            algo_dict['epoch_indices'] = epoch_indices
+            _, res_cube_no_fc, _ = algo(
+                cube=cube, angle_list=angle_list, fwhm=fwhm_med,
+                verbose=verbose, full_output = True, **algo_dict)
+            step = step_walk[N]
+            epoch_indices = [0]
+            for n in range(nbr_epochs):
+                epoch_indices.append(epoch_indices[-1]+step_walk[n])
+            indices_epochs = [epoch_indices[int(j/2) + j%2] for j in range(0, nbr_epochs*2)]
+            break
+        
+        indices_cube_adi = (cube_delimiter[N+R*N], cube_delimiter[N+R*N+1])
+        cube_adi = cube[indices_cube_adi[0]:indices_cube_adi[1]]
+        this_angle_list = angle_list[indices_cube_adi[0]:indices_cube_adi[1]]
+        if cube_ref_delimiter is not None:
+            cube_ref_delimiter = np.array(cube_ref_delimiter)
+            Rr = int(0)
+            if cube_ref_delimiter.shape[0] == nbr_cubes*2:
+                Rr = int(1)
+            indices_cube_rdi = (cube_ref_delimiter[N+Rr*N],cube_ref_delimiter[N+Rr*N+1])
+            algo_dict['cube_ref'] = algo_dict['cube_ref'][indices_cube_rdi[0]:
+                                             indices_cube_rdi[1],:,:]
+                
+        if algo.__name__ == 'pca_annular_corr':
+            if epoch_indices is not None:
+                epoch_indices = np.array(epoch_indices)
+                Re = int(0)
+                if epoch_indices.shape[0] == nbr_cubes*2:
+                    Re = int(1)
+                algo_dict['epoch_indices'] = epoch_indices[N+Re*N:N+Re*N+2]
+            else:
+                algo_dict['epoch_indices'] = (indices_cube_adi[0],indices_cube_adi[1])
+            
+        if 'delta_rot' in algo_dict.keys():
+            if isinstance(algo_dict['delta_rot'], list):
+                algo_dict['delta_rot'] = np.array(algo_dict['delta_rot'])
+            if isinstance(algo_dict['delta_rot'], np.ndarray):
+                if algo_dict['delta_rot'].shape[0] != nbr_cubes:
+                    raise ValueError('delta_rot has wrong length')
+                algo_dict['delta_rot'] = algo_dict['delta_rot'][N]
+        
+        
+        if algo_name == 'pca_annular_corr':
+            indices_done = algo_dict['epoch_indices']
+        else:
+            indices_done = indices_cube_adi
+        
+        if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
+            _, res_cube_no_fc[:, indices_done[0]:indices_done[1], :, :], _ = algo(
+                        cube=cube_adi, angle_list=this_angle_list, fwhm=fwhm_med,
+                        verbose=verbose, full_output = True, **algo_dict)
+        elif algo_name == 'pca_annular_multi_epoch' or algo_name == 'pca_annular_corr_multi_epoch':
+            _, res_cube_no_fc[:, indices_done[0]:indices_done[1], :, :] = algo(
+                        cube=cube, angle_list=angle_list, fwhm=fwhm_med,
+                        verbose=verbose, full_output = True, **algo_dict)
+        else:
+            raise ValueError("Algorithm not supported")
+          
+    frames_per_epoch = [(indices_epochs[i+1]-indices_epochs[i])/NbrImages
+                                    for i in range(0, len(indices_epochs), 2)]
+    #print(frames_per_epoch)
+
+    frames_basis_no_fc = np.median(res_cube_no_fc, axis = 1)
+
+    noise_avg = np.array([noise_dist(frames_basis_no_fc[n, :, :], rad_dist, fwhm_med, wedge, 
+                        False, debug) for n in range(0, nnpcs)])
+    
+    noise = noise_avg[:, :, 0]
+    mean_res = noise_avg[:, :, 1]
+    
+    
+    #minimizing noise in one half of annulus? look at imapct on source on other side
+    
+    #add option to kee pSNR above a threshold in contrast optimization
+    
+    #add approximatin parameters in optimization of contrast
+    
+    if source_xy is not None:
+        
+        x_source = source_xy[0]
+        y_source = source_xy[1]
+        snr_flux_basis = np.array([get_snr(frames_basis_no_fc[i], 
+                    y_source, x_source, fwhm, fmerit) for i in range(0, nnpcs)])
+        Optimal_comp_basis = ncomp[np.argmax(snr_flux_basis[:, 0])]
+        
+        Optimal_comp = np.full((nbr_epochs), Optimal_comp_basis)
+        
+            
+        snr_progress = []
+        flux_progress = []
+        snr_progress.append(np.max(snr_flux_basis[:, 0]))
+        flux_progress.append(snr_flux_basis[np.argmax(snr_flux_basis[:, 0]),1])
+        
+        #Optimize: when more than half values in Imporvements the same,
+        #start simply selecting the first one that's better as an iteration
+        
+        #or a full otimization that always chooses the first better encountered
+        #as the iteration
+        
+        #or step method, group epochs by groups, check all in the group, select the best
+        #go to next group, do the same.. Repeat, each change = one iteration
+        I = 0
+        
+        
+        if approximation == -1:
+            Ncombinations = nnpcs**nbr_epochs
+            indices_comp = np.zeros(nbr_epochs, dtype = int)
+            
+            index = 0
+            percentage = 10
+            for i in range(Ncombinations):
+                if verbose:
+                    if i > Ncombinations*(percentage/100) and i < Ncombinations*(percentage/100)+nnpcs:
+                        percentage += 10
+                        print("Done at {}%".format(percentage))
+                res_cube_a = np.zeros((NbrImages, SizeImage, SizeImage))
+            
+                these_comp =  []
+                for Nbis in range(nbr_epochs):
+                    this_comp = indices_comp[Nbis]
+                    res_cube_a[indices_epochs[Nbis*2]:
+                        indices_epochs[(Nbis*2)+1],:,:] = res_cube_no_fc[
+                        this_comp,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+                    these_comp.append(ncomp[this_comp])
+            
+            
+                this_frame = np.median(res_cube_a, axis = 0)
+                
+                this_snr_flux = get_snr(this_frame, 
+                                        y_source, x_source, fwhm, fmerit)
+            
+                if flux_increase:
+                    if this_snr_flux[1] < flux_progress[-1]:
+                        indices_comp, index = NextComb(indices_comp, nnpcs, nbr_epochs)
+                        continue
+                    
+                if this_snr_flux[0] > snr_progress[-1]:
+                    snr_progress.append(this_snr_flux[0])
+                    Optimal_comp = these_comp
+                        
+                    
+                indices_comp, index = NextComb(indices_comp, nnpcs, nbr_epochs)
+            
+            Best_frame_basis = frames_basis_no_fc[np.argmax(snr_flux_basis[:, 0])]
+            for Nbis in range(nbr_epochs):
+                this_comp = int(np.where(ncomp == Optimal_comp[Nbis])[0])
+                res_cube_a[indices_epochs[Nbis*2]:
+                    indices_epochs[(Nbis*2)+1],:,:] = res_cube_no_fc[
+                    this_comp,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+            Best_frame = np.median(res_cube_a, axis = 0)
+            
+            return (Optimal_comp, Optimal_comp_basis, snr_flux_basis, snr_progress,
+                    flux_progress, Best_frame_basis, Best_frame)
+        
+        
+        while I < iterations:
+        #for I in range(iterations):
+            Improvements = np.zeros((nbr_epochs,3))
+            previous_N = -1
+            no_found = 0
+            for N in range(nbr_epochs):
+                if N == previous_N:
+                    continue
+                
+                snr_flux_test = np.zeros((nnpcs,2))
+                for i, n in enumerate(ncomp):
+                    res_cube_a = np.zeros((NbrImages, SizeImage, SizeImage))
+                    
+                    for Nbis in range(nbr_epochs):
+                        #optimize: only change section of the epoch N in res_cube_a
+                        #reset when Opt_comp has changed
+                        if Nbis == N:
+                            this_comp = i
+                        else:
+                            this_comp = int(np.where(ncomp == Optimal_comp[Nbis])[0])
+                        res_cube_a[indices_epochs[Nbis*2]:
+                            indices_epochs[(Nbis*2)+1],:,:] = res_cube_no_fc[
+                            this_comp,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+
+                    this_frame = np.median(res_cube_a, axis = 0)
+                    
+                    snr_flux_test[i] = get_snr(this_frame, 
+                                            y_source, x_source, fwhm, fmerit)
+                
+                if flux_increase:
+                    sorted_ind = np.argsort(snr_flux_test[:,0])[::-1]
+                    for ind in sorted_ind:
+                        if snr_flux_test[ind,0] <= snr_progress[-1]:
+                            break
+                        if snr_flux_test[ind,1] <= flux_progress[-1]:
+                            continue
+                        Improvements[N,0:2] = snr_flux_test[ind,:]
+                        Improvements[N,2] = ncomp[ind]
+                        break
+                else:
+                    BestInd = np.argmax(snr_flux_test[:, 0])
+                    Improvements[N,0:2] = snr_flux_test[BestInd,:]
+                    Improvements[N,2] = ncomp[BestInd]
+                
+                if approximation == 3:
+                    if Improvements[N,0] > snr_progress[-1]:
+                        if flux_increase:
+                            #sorted_ind = np.argsort(snr_flux_test[:,0])[::-1]
+                            found = False
+                            for ind in sorted_ind:
+                                if snr_flux_test[ind,0] <= snr_progress[-1]:
+                                    break
+                                if snr_flux_test[ind,1] <= flux_progress[-1]:
+                                    continue
+                                found = True
+                                I += 1
+                                snr_progress.append(snr_flux_test[ind,0])
+                                flux_progress.append(snr_flux_test[ind,1])
+                                Optimal_comp[N] = ncomp[ind]
+                                previous_N = N
+                                if verbose:
+                                    print(snr_progress[-1])
+                                break
+                            if found == False:
+                                no_found += 1
+                        else:
+                            I += 1
+                            snr_progress.append(Improvements[N,0])
+                            Optimal_comp[N] = Improvements[N,2]
+                            previous_N = N
+                            if verbose:
+                                print(snr_progress[-1])
+                    else:
+                        no_found += 1
+                        
+            if no_found == nbr_epochs:
+                break
+            if approximation == 0 or approximation == 1:
+                #print(Improvements)
+                Best_snr = np.max(Improvements[:,0])
+                if Best_snr <= snr_progress[-1]:
+                    print('Done after {}'.format(I))
+                    break
+                
+                Best_N = np.argmax(Improvements[:, 0])
+                
+                if flux_increase:
+                    if Improvements[Best_N,1]<=flux_progress[-1]:
+                        print('Done after {}'.format(I))
+                        break
+                
+                previous_N = Best_N
+                Optimal_comp[Best_N] = Improvements[Best_N, 2]
+                snr_progress.append(Best_snr)
+                flux_progress.append(Improvements[Best_N,1])
+                if verbose:
+                    print(snr_progress[-1])
+                
+                if approximation == 1:
+                    for j in range(nbr_epochs):
+                        counter = 0
+                        for  k in range(nbr_epochs):
+                            if k == j:
+                                continue
+                            if Improvements[j,0] == Improvements[k,0]:
+                                counter += 1
+                            if counter > nbr_epochs/switch:
+                                print("SWTICHED TO APPROXIMATION = 3")
+                                approximation = 3
+                                break
+                        if approximation == 3:
+                            break
+            I+=1
+        
+        Best_frame_basis = frames_basis_no_fc[np.argmax(snr_flux_basis[:, 0])]
+        for Nbis in range(nbr_epochs):
+            this_comp = int(np.where(ncomp == Optimal_comp[Nbis])[0])
+            res_cube_a[indices_epochs[Nbis*2]:
+                indices_epochs[(Nbis*2)+1],:,:] = res_cube_no_fc[
+                this_comp,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+        Best_frame = np.median(res_cube_a, axis = 0)
+        
+        return (Optimal_comp, Optimal_comp_basis, snr_flux_basis, snr_progress,
+                flux_progress, Best_frame_basis, Best_frame)
+    
+    
+    # We crop the PSF and check if PSF has been normalized (so that flux in
+    # 1*FWHM aperture = 1) and fix if needed
+    new_psf_size = int(round(3 * fwhm_med))
+    if new_psf_size % 2 == 0:
+        new_psf_size += 1
+    
+    n, y, x = cube.shape
+    psf_template = normalize_psf(
+        psf_template,
+        fwhm=fwhm,
+        verbose=verbose,
+        size=min(new_psf_size, psf_template.shape[1]),
+    )
+    
+    
+    # Initialize the fake companions
+    angle_branch = angular_range / nbranch
+    
+    Throughput = np.zeros((nnpcs, nbr_dist, nbranch))
+    
+    fc_map = np.zeros((y, x))
+    cy, cx = frame_center(cube[0])
+    parangles = angle_list
+
+    # each branch is computed separately
+    if matrix_adi_ref is not None:
+        copy_ref = np.copy(algo_dict['cube_ref'])
+        
+    nbr_per = len(per_values)
+    snr_basis_per = np.zeros((nnpcs, nbr_dist, nbranch, nbr_per))
+    
+    loc = np.zeros((nbr_dist, nbranch, 2))
+    thruput_basis = np.zeros((nnpcs, nbr_dist, nbranch))
+    recovered_flux_basis = np.zeros((nnpcs, nbr_dist, nbranch))
+    all_injected_flux = np.zeros((nbr_dist, nbranch))
+    
+    if np.isscalar(fc_snr):
+        fc_snr = np.array(fc_snr)
+    elif isinstance(fc_snr, tuple):
+        fc_snr = np.linspace(fc_snr[0], fc_snr[1], nbr_dist)
+    
+    thruput_per = np.zeros((nnpcs, nbr_dist, nbr_per))
+    this_flux = flux
+    all_fluxes = np.zeros((nbr_dist, nbr_per))
+    for i, per in enumerate(per_values):
+        
+        for br in range(nbranch):
+        
+            if matrix_adi_ref is not None:
+                algo_dict['cube_ref'] = np.copy(copy_ref)
+        
+            # each pattern is computed separately. For each one the companions
+            # are separated by "fc_rad_sep * fwhm", interleaving the injections
+            fc_map = np.ones_like(cube[0]) * 1e-6
+            fcy = 0
+            fcx = 0
+        
+            if this_flux is None:
+                flux = np.array(fc_snr) * np.array([np.percentile(noise_avg[:, d, 0], per) for d in range(0,nbr_dist)])
+            
+            if br == 0:
+                all_fluxes[:,i] = flux
+            print(flux)
+        
+            if matrix_adi_ref is None:
+                cube_fc = cube.copy()
+            else:
+                cube_fc = cube.copy()
+                cube_adi_fc = np.copy(algo_dict['cube_ref'][NAdiRef:NRefT, :, :])
+                cube_fc = np.vstack((cube_fc, cube_adi_fc))
+                parangles = np.concatenate((angle_list, angle_adi_ref))
+        
+            for d in range(0, nbr_dist):
+                cube_fc = cube_inject_companions(
+                    cube_fc,
+                    psf_template,
+                    parangles,
+                    flux[d],
+                    rad_dists=rad_dist[d],
+                    theta=br * angle_branch + theta,
+                    nproc=nproc,
+                    imlib=imlib,
+                    interpolation=interpolation,
+                    verbose=False,
+                    )
+        
+            if matrix_adi_ref is not None:
+                algo_dict['cube_ref'][NAdiRef:NRefT, :, :] = cube_fc[n:, :, :]
+                cube_fc = cube_fc[0:n, :, :]
+            
+        
+            for d in range(0, nbr_dist):
+                y = cy + rad_dist[d] * \
+                    np.sin(np.deg2rad(br * angle_branch + theta))
+                x = cx + rad_dist[d] * \
+                    np.cos(np.deg2rad(br * angle_branch + theta))
+                fc_map = frame_inject_companion(
+                    fc_map, psf_template, y, x, flux[d], imlib, interpolation
+                )
+                fcy = y
+                fcx = x
+                loc[d, br ,:] = np.array([fcy, fcx])
+
+            if verbose:
+                msg2 = "Fake companions injected in branch {} "
+                print(msg2.format(br + 1))
+                timing(start_time)
+    
+            for N in range(nbr_cubes):
+                algo_dict = algo_dict_copy.copy()
+                
+                if len(epoch_saved) == 2:
+                    algo_dict['epoch_indices'] = epoch_saved
+                    _, res_cube_fc[:,br,:,:,:], _ = algo(
+                        cube=cube_fc, angle_list=angle_list, fwhm=fwhm_med, 
+                        verbose=verbose, full_output = True, **algo_dict)
+                    break
+                
+                indices_cube_adi = (cube_delimiter[N+R*N], cube_delimiter[N+R*N+1])
+                cube_adi = cube[indices_cube_adi[0]:indices_cube_adi[1]]
+                this_angle_list = angle_list[cube_delimiter[N+R*N]:cube_delimiter[N+R*N+1]]
+                if cube_ref_delimiter is not None:
+                    cube_ref_delimiter = np.array(cube_ref_delimiter)
+                    Rr = int(0)
+                    if cube_ref_delimiter.shape[0] == nbr_cubes*2:
+                        Rr = int(1)
+                    indices_cube_rdi = (cube_ref_delimiter[N+Rr*N],cube_ref_delimiter[N+Rr*N+1])
+                    algo_dict['cube_ref'] = algo_dict['cube_ref'][indices_cube_rdi[0]:
+                                                 indices_cube_rdi[1],:,:]
+                    
+                if algo.__name__ == 'pca_annular_corr':
+                    if epoch_indices is not None:
+                        epoch_indices = np.array(epoch_indices)
+                        Re = int(0)
+                        if epoch_indices.shape[0] == nbr_cubes*2:
+                            Re = int(1)
+                        algo_dict['epoch_indices'] = epoch_indices[N+Re*N:N+Re*N+2]
+                    else:
+                        algo_dict['epoch_indices'] = (indices_cube_adi[0],indices_cube_adi[1])
+                
+                if 'delta_rot' in algo_dict.keys():
+                    if isinstance(algo_dict['delta_rot'], list):
+                        algo_dict['delta_rot'] = np.array(algo_dict['delta_rot'])
+                    if isinstance(algo_dict['delta_rot'], np.ndarray):
+                        if algo_dict['delta_rot'].shape[0] != nbr_cubes:
+                            raise ValueError('delta_rot has wrong length')
+                        algo_dict['delta_rot'] = algo_dict['delta_rot'][N]
+            
+                if algo_name == 'pca_annular_corr':
+                    indices_done = algo_dict['epoch_indices']
+                else:
+                    indices_done = indices_cube_adi
+                if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
+                    _, res_cube_fc[:,br,indices_done[0]:indices_done[1],:,:], _ = algo(
+                        cube=cube_fc, angle_list=angle_list, fwhm=fwhm_med, 
+                        verbose=verbose, full_output = True, **algo_dict)
+                elif algo_name == 'pca_annular_multi_epoch' or algo_name == 'pca_annular_corr_multi_epoch':
+                    _, res_cube_fc[:,br,indices_done[0]:indices_done[1],:,:] = algo(
+                        cube=cube_fc, angle_list=angle_list, fwhm=fwhm_med, 
+                        verbose=verbose, full_output = True, **algo_dict)
+        
+            frames_basis_fc[:,br,:,:] = np.median(res_cube_fc[:,br,:,:,:], axis = 1)
+
+            injected_flux = apertureOne_flux(fc_map, loc[:,br,0], loc[:,br,1], fwhm_med)
+            
+            all_injected_flux[:,br] = injected_flux
+            recovered_flux_avg = np.array([apertureOne_flux(
+                (frames_basis_fc[n, br, :, :] - frames_basis_no_fc[n, :, :]), loc[:,br,0], loc[:,br,1], fwhm_med
+            ) for n in range(0, nnpcs)])
+            recovered_flux_basis[:,:,br] = recovered_flux_avg
+            for d in range(0, nbr_dist):
+                thruput_basis[:,d,br] = recovered_flux_avg[:,d]/injected_flux[d]
+            thruput_basis[np.where(thruput_basis < 0)] = 0
+            thruput_basis[np.where(thruput_basis > 1)] = 0
+        
+            for d in range(0, nbr_dist):
+                snr_basis_per[:, d, br,i] = [get_snr(frames_basis_fc[n,br,:,:], 
+                    loc[d,br,0], loc[d,br,1], fwhm, fmerit)[0] for n in range(0,nnpcs)]
+            
+        thruput_per[:,:,i] = np.nanmean(thruput_basis[:,:,:], axis = 2)
+        
+    
+    print(thruput_per)
+    snr_basis = np.median(snr_basis_per, axis = 2)
+    thruput_basis = np.nanmean(thruput_basis[:,:,:], axis = 2)
+    print(snr_basis)
+    thru_cont_basis = np.zeros((nnpcs, nbr_dist, 3))
+    #snr_basis (nnpcs, nbr_dist, per)
+    
+    flux_wanted = np.zeros((nnpcs, nbr_dist))
+    for d in range(nbr_dist):
+        for n in range(nnpcs):
+            snrmax = np.max(snr_basis[n,d,:])
+            snrmin = np.min(snr_basis[n,d,:])
+            if snr_target < snrmax and snr_target > snrmin:
+                flux_wanted[n,d] = interpol(snr_target, snr_basis[n,d,:], all_fluxes[d,:])
+            elif snr_target > snrmax:
+                flux_wanted[n,d] = all_fluxes[d, np.argmax(snr_basis[n,d,:])]
+            elif snr_target < snrmin:
+                flux_wanted[n,d] = all_fluxes[d, np.argmin(snr_basis[n,d,:])]
+        
+        nbr_neg = np.sum((flux_wanted[:,d]<0))
+        if nbr_neg > 1:
+            raise ValueError('Unable to properly estimate the optimal flux')
+        elif nbr_neg == 1:
+            ind = np.where(flux_wanted[:,d] < 0)[0]
+            if ind == 0:
+                flux_wanted[ind,d] = flux_wanted[ind+1,d]
+            elif ind == nbr_dist:
+                flux_wanted[ind,d] = flux_wanted[ind-1,d]
+            else:
+                flux_wanted[ind,d] = (flux_wanted[ind+1,d] + flux_wanted[ind-1,d])/2
+                
+        for k,n in enumerate(ncomp):
+            this_curve = thruput_per[k,d,:]
+            
+            corrected_thru = interpol(flux_wanted[k,d], 
+                                      all_fluxes[d,:], this_curve)
+            
+            if corrected_thru < 0 or corrected_thru > 1:
+                corrected_thru = 1e-4
+            thru_cont_basis[k,d,0] = corrected_thru
+            
+    print(flux_wanted)
+    
+    if isinstance(starphot, float) or isinstance(starphot, int):
+        thru_cont_basis[:,:,1] = (
+            (sigma * noise_avg[:,:,0]) / thru_cont_basis[:,:,0]
+        ) / starphot
+    else:
+        thru_cont_basis[:,:,1] = (
+            (sigma * noise_avg[:,:,0]) / thru_cont_basis[:,:,0]
+        ) / np.median(starphot)
+    if 'multi_epoch' not in algo_name:
+        thru_cont_basis[:,:,2] = ncomp.reshape(ncomp.shape[0],1)
+    
+    
+    for d in range(nbr_dist):
+        thru_cont_basis[np.where(thru_cont_basis[:,d,0] == 1e-4),d,1] = 1
+    print(thru_cont_basis)
+    
+    
+    if through_thresh != 'auto':
+        if np.isscalar(through_thresh):
+            through_thresh = [through_thresh]*nbr_dist
+        for d in range(nbr_dist):
+            if np.sum((thru_cont_basis[:,d,0]>through_thresh[d])) == 0:
+                print('through_thresh should be at most {}'.format(np.max(thru_cont_basis[:,d,0])))
+                raise ValueError('through_thresh is too high')
+        
+    Optimal_comp_basis = []
+    Optimal_comp_basis_ind = []
+    if through_thresh != 'auto':
+        for d in range(nbr_dist):
+            #pose limit on threshold if it increases with comp...
+            sorted_ind = np.argsort(thru_cont_basis[:,d,1])
+            for Ind in sorted_ind:
+                if thru_cont_basis[Ind,d,0] < through_thresh[d]:
+                    continue
+                Optimal_comp_basis.append(ncomp[Ind])
+                Optimal_comp_basis_ind.append(Ind)
+                break
+    else:
+        for d in range(nbr_dist):
+            Optimal_comp_basis.append(ncomp[np.argmin(thru_cont_basis[:, d, 1])])
+            Optimal_comp_basis_ind.append(Ind)
+            
+    Optimal_comp_basis = np.array(Optimal_comp_basis)
+    print(Optimal_comp_basis)
+    Optimal_comp_basis_ind = np.array(Optimal_comp_basis_ind)
+    
+    flux_wanted = [flux_wanted[Optimal_comp_basis_ind[d],d] for d in range(0, nbr_dist)]
+    print(flux_wanted)
+    
+    ########################################################################
+    
+    snr_basis = np.zeros((nnpcs, nbr_dist, nbranch))
+    thruput_basis = np.zeros((nnpcs, nbr_dist, nbranch))
+    for br in range(nbranch):
+    
+        if matrix_adi_ref is not None:
+            algo_dict['cube_ref'] = np.copy(copy_ref)
+    
+        # each pattern is computed separately. For each one the companions
+        # are separated by "fc_rad_sep * fwhm", interleaving the injections
+        fc_map = np.ones_like(cube[0]) * 1e-6
+        fcy = 0
+        fcx = 0
+    
+        flux = flux_wanted
+    
+        if matrix_adi_ref is None:
+            cube_fc = cube.copy()
+        else:
+            cube_fc = cube.copy()
+            cube_adi_fc = np.copy(algo_dict['cube_ref'][NAdiRef:NRefT, :, :])
+            cube_fc = np.vstack((cube_fc, cube_adi_fc))
+            parangles = np.concatenate((angle_list, angle_adi_ref))
+    
+        for d in range(0, nbr_dist):
+            cube_fc = cube_inject_companions(
+                cube_fc,
+                psf_template,
+                parangles,
+                flux[d],
+                rad_dists=rad_dist[d],
+                theta=br * angle_branch + theta,
+                nproc=nproc,
+                imlib=imlib,
+                interpolation=interpolation,
+                verbose=False,
+                )
+    
+        if matrix_adi_ref is not None:
+            algo_dict['cube_ref'][NAdiRef:NRefT, :, :] = cube_fc[n:, :, :]
+            cube_fc = cube_fc[0:n, :, :]
+        
+    
+        for d in range(0, nbr_dist):
+            y = cy + rad_dist[d] * \
+                np.sin(np.deg2rad(br * angle_branch + theta))
+            x = cx + rad_dist[d] * \
+                np.cos(np.deg2rad(br * angle_branch + theta))
+            fc_map = frame_inject_companion(
+                fc_map, psf_template, y, x, flux[d], imlib, interpolation
+            )
+            fcy = y
+            fcx = x
+            loc[d, br ,:] = np.array([fcy, fcx])
+
+        if verbose:
+            msg2 = "Fake companions injected in branch {} "
+            print(msg2.format(br + 1))
+            timing(start_time)
+
+        for N in range(nbr_cubes):
+            algo_dict = algo_dict_copy.copy()
+            
+            if len(epoch_saved) == 2:
+                algo_dict['epoch_indices'] = epoch_saved
+                _, res_cube_fc[:,br,:,:,:], _ = algo(
+                    cube=cube_fc, angle_list=angle_list, fwhm=fwhm_med, 
+                    verbose=verbose, full_output = True, **algo_dict)
+                break
+            
+            indices_cube_adi = (cube_delimiter[N+R*N], cube_delimiter[N+R*N+1])
+            cube_adi = cube[indices_cube_adi[0]:indices_cube_adi[1]]
+            this_angle_list = angle_list[cube_delimiter[N+R*N]:cube_delimiter[N+R*N+1]]
+            if cube_ref_delimiter is not None:
+                cube_ref_delimiter = np.array(cube_ref_delimiter)
+                Rr = int(0)
+                if cube_ref_delimiter.shape[0] == nbr_cubes*2:
+                    Rr = int(1)
+                indices_cube_rdi = (cube_ref_delimiter[N+Rr*N],cube_ref_delimiter[N+Rr*N+1])
+                algo_dict['cube_ref'] = algo_dict['cube_ref'][indices_cube_rdi[0]:
+                                             indices_cube_rdi[1],:,:]
+                
+            if algo.__name__ == 'pca_annular_corr':
+                if epoch_indices is not None:
+                    epoch_indices = np.array(epoch_indices)
+                    Re = int(0)
+                    if epoch_indices.shape[0] == nbr_cubes*2:
+                        Re = int(1)
+                    algo_dict['epoch_indices'] = epoch_indices[N+Re*N:N+Re*N+2]
+                else:
+                    algo_dict['epoch_indices'] = (indices_cube_adi[0],indices_cube_adi[1])
+            
+            if 'delta_rot' in algo_dict.keys():
+                if isinstance(algo_dict['delta_rot'], list):
+                    algo_dict['delta_rot'] = np.array(algo_dict['delta_rot'])
+                if isinstance(algo_dict['delta_rot'], np.ndarray):
+                    if algo_dict['delta_rot'].shape[0] != nbr_cubes:
+                        raise ValueError('delta_rot has wrong length')
+                    algo_dict['delta_rot'] = algo_dict['delta_rot'][N]
+        
+            if algo_name == 'pca_annular_corr':
+                indices_done = algo_dict['epoch_indices']
+            else:
+                indices_done = indices_cube_adi
+            if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
+                _, res_cube_fc[:,br,indices_done[0]:indices_done[1],:,:], _ = algo(
+                    cube=cube_fc, angle_list=angle_list, fwhm=fwhm_med, 
+                    verbose=verbose, full_output = True, **algo_dict)
+            elif algo_name == 'pca_annular_multi_epoch' or algo_name == 'pca_annular_corr_multi_epoch':
+                _, res_cube_fc[:,br,indices_done[0]:indices_done[1],:,:] = algo(
+                    cube=cube_fc, angle_list=angle_list, fwhm=fwhm_med, 
+                    verbose=verbose, full_output = True, **algo_dict)
+    
+        frames_basis_fc[:,br,:,:] = np.median(res_cube_fc[:,br,:,:,:], axis = 1)
+
+        injected_flux = apertureOne_flux(fc_map, loc[:,br,0], loc[:,br,1], fwhm_med)
+        
+        all_injected_flux[:,br] = injected_flux
+        recovered_flux_avg = np.array([apertureOne_flux(
+            (frames_basis_fc[n, br, :, :] - frames_basis_no_fc[n, :, :]), loc[:,br,0], loc[:,br,1], fwhm_med
+        ) for n in range(0, nnpcs)])
+        recovered_flux_basis[:,:,br] = recovered_flux_avg
+        for d in range(0, nbr_dist):
+            thruput_basis[:,d,br] = recovered_flux_avg[:,d]/injected_flux[d]
+        thruput_basis[np.where(thruput_basis < 0)] = 0
+        thruput_basis[np.where(thruput_basis > 1)] = 0
+    
+        for d in range(0, nbr_dist):
+            snr_basis[:, d, br] = [get_snr(frames_basis_fc[n,br,:,:], 
+                loc[d,br,0], loc[d,br,1], fwhm, fmerit)[0] for n in range(0,nnpcs)]
+    
+    ########################################################################
+    print(all_injected_flux)
+    print(snr_basis)
+    
+    new_thruput = np.nanmean(thruput_basis[:,:,:], axis = 2)
+    print(new_thruput)
+    
+    new_thru_cont_basis = np.zeros_like(thru_cont_basis)
+    
+    new_thru_cont_basis[:,:,0] = new_thruput
+    
+    if isinstance(starphot, float) or isinstance(starphot, int):
+        new_thru_cont_basis[:,:,1] = (
+            (sigma * noise_avg[:,:,0]) / new_thru_cont_basis[:,:,0]
+        ) / starphot
+    else:
+        new_thru_cont_basis[:,:,1] = (
+            (sigma * noise_avg[:,:,0]) / new_thru_cont_basis[:,:,0]
+        ) / np.median(starphot)
+        
+    print(new_thru_cont_basis)
+    
+    
+    if through_thresh == 'auto':
+        through_thresh = [new_thru_cont_basis[np.argmin(new_thru_cont_basis[:, d, 1]),d,0] 
+                                                          for d in range(nbr_dist)]
+    elif through_up:
+        through_thresh = [new_thru_cont_basis[np.argmin(new_thru_cont_basis[
+            new_thru_cont_basis[:,d,0]>through_thresh[d], d, 1]),d,0] for d in range(nbr_dist)]
+    
+    
+    Optimal_comp_basis = []
+    Optimal_comp_basis_ind = []
+    if through_thresh != 'auto':
+        for d in range(nbr_dist):
+            #pose limit on threshold if it increases with comp...
+            sorted_ind = np.argsort(new_thru_cont_basis[:,d,1])
+            for Ind in sorted_ind:
+                if new_thru_cont_basis[Ind,d,0] < through_thresh[d]:
+                    continue
+                Optimal_comp_basis.append(ncomp[Ind])
+                Optimal_comp_basis_ind.append(Ind)
+                break
+    else:
+        for d in range(nbr_dist):
+            Optimal_comp_basis.append(ncomp[np.argmin(new_thru_cont_basis[:, d, 1])])
+            Optimal_comp_basis_ind.append(Ind)
+    
+    Optimal_comp = np.zeros((nbr_epochs, nbr_dist), dtype = int)
+    for i in range(nbr_epochs):
+        Optimal_comp[i,:] = Optimal_comp_basis.copy()
+        
+    Contrast_progress = []
+    for d in range(nbr_dist):
+        Contrast_progress.append([np.min(new_thru_cont_basis[:, d, 1])])
+        
+    if approximation == -1:
+        Ncombinations = nnpcs**nbr_epochs
+        indices_comp = np.zeros(nbr_epochs, dtype = int)
+        
+        All_Optimal_Comp = np.array([np.full((nbr_epochs), Optimal_comp_basis[d]) for d in range(nbr_dist)])
+        
+        index = 0
+        I = 0
+        while I < Ncombinations:
+            res_cube_a = np.zeros((NbrImages, SizeImage, SizeImage))
+            res_cube_fc_a = np.zeros((nbranch, NbrImages, SizeImage, SizeImage))
+        
+            these_comp =  []
+            for Nbis in range(nbr_epochs):
+                this_comp = indices_comp[Nbis]
+                res_cube_a[indices_epochs[Nbis*2]:
+                    indices_epochs[(Nbis*2)+1],:,:] = res_cube_no_fc[
+                    this_comp,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+                res_cube_fc_a[:,indices_epochs[Nbis*2]:
+                    indices_epochs[(Nbis*2)+1],:,:] = res_cube_fc[
+                    this_comp,:,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+                these_comp.append(ncomp[this_comp])
+        
+        
+            this_frame = np.median(res_cube_a, axis = 0)
+            this_frames_fc = np.median(res_cube_fc_a, axis = 1)
+        
+            this_noise = noise_dist(this_frame, rad_dist, fwhm_med, wedge, 
+                            False, debug)[:,0]
+        
+        
+            this_thruput = np.zeros((nbranch, nbr_dist))
+            this_flux = np.array([apertureOne_flux(
+                (this_frames_fc[br, :, :] - this_frame), loc[:,br,0], loc[:,br,1], fwhm_med
+            ) for br in range(nbranch)])
+        
+            for br in range(nbranch):
+                this_thruput[br,:] = this_flux[br,:]/all_injected_flux[:, br]
+            
+            this_thruput[np.where(this_thruput < 0)] = 0
+            this_thruput[np.where(this_thruput > 1)] = 0
+        
+            this_contrast = np.zeros((nbr_dist, 2))
+        
+            for d in range(nbr_dist):
+                if len(np.where(this_thruput[:,d] > 0)[0]) == 0:
+                    this_contrast[d,0] = 0
+                    this_contrast[d,1] = 1
+                    continue
+                else:
+                    this_contrast[d,0] = np.nanmean(this_thruput[:,d], axis = 0)
+                
+                if this_contrast[d,0] < through_thresh[d]:
+                    continue
+            
+                if isinstance(starphot, float) or isinstance(starphot, int):
+                    this_contrast[d,1] = (
+                        (sigma * this_noise[d]) / this_contrast[d,0]
+                    ) / starphot
+                else:
+                    this_contrast[d,1] = (
+                        (sigma * this_noise[d]) / this_contrast[d,0]
+                    ) / np.median(starphot)
+                
+                
+                if this_contrast[d,1] < Contrast_progress[d][-1]:
+                    Contrast_progress[d].append(this_contrast[d,1])
+                    All_Optimal_Comp[d,:] = these_comp
+                    
+            if np.sum(this_contrast[:,0]<through_thresh) == nbr_dist:
+                new_index = index
+                while new_index == index:
+                    I+=1
+                    indices_comp, index = NextComb(indices_comp, nnpcs, nbr_epochs)
+                continue
+            
+            indices_comp, index = NextComb(indices_comp, nnpcs, nbr_epochs)
+            I+=1
+        
+        return Contrast_progress, All_Optimal_Comp
+        
+    Done = []
+    I = 0
+    while I < iterations:
+        Improvements = np.zeros((nbr_epochs,nbr_dist,3))
+        
+        no_found = np.zeros(nbr_dist)
+        for N in range(nbr_epochs):
+            
+            for d in range(nbr_dist):
+                if d in Done:
+                    continue
+                
+                contrasts = np.zeros((nnpcs,2))
+                for i, n in enumerate(ncomp):
+                    res_cube_a = np.zeros((NbrImages, SizeImage, SizeImage))
+                    res_cube_fc_a = np.zeros((nbranch, NbrImages, SizeImage, SizeImage))
+                    
+                    these_comp =  []
+                    for Nbis in range(nbr_epochs):
+                        if Nbis == N:
+                            this_comp = i
+                        else:
+                            this_comp = int(np.where(ncomp == Optimal_comp[Nbis,d])[0])
+                        res_cube_a[indices_epochs[Nbis*2]:
+                            indices_epochs[(Nbis*2)+1],:,:] = res_cube_no_fc[
+                            this_comp,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+                        res_cube_fc_a[:,indices_epochs[Nbis*2]:
+                            indices_epochs[(Nbis*2)+1],:,:] = res_cube_fc[
+                            this_comp,:,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+                        these_comp.append(ncomp[this_comp])
+                    
+                    this_frame = np.median(res_cube_a, axis = 0)
+                    this_frames_fc = np.median(res_cube_fc_a, axis = 1)
+                    
+                    this_noise, this_mean = noise_dist(this_frame, rad_dist[d], fwhm_med, wedge, 
+                                        False, debug)[0]
+                    print(this_noise, this_mean)
+                
+                    this_thruput = np.zeros(nbranch)
+                    this_flux = np.array([apertureOne_flux(
+                        (this_frames_fc[br, :, :] - this_frame), loc[d,br,0], loc[d,br,1], fwhm_med
+                    ) for br in range(nbranch)])
+                    
+                    for br in range(nbranch):
+                        this_thruput[br] = this_flux[br]/all_injected_flux[d, br]
+                        
+                    this_thruput[np.where(this_thruput < 0)] = 0
+                    this_thruput[np.where(this_thruput > 1)] = 0
+                    
+                    # #if np.sum(this_thruput > through_thresh[d]) < nbranch:
+                    # #    this_thruput = 0
+                    # #print(this_thruput)
+                    if len(np.where(this_thruput > 0)[0]) == 0:
+                        contrasts[i,0] = 0
+                        contrasts[i,1] = 1
+                        continue
+                    else:
+                        this_avg_thruput = np.nanmean(this_thruput)
+                        
+                    #Correction on thruput done here
+                    #thruput_per = np.zeros((nnpcs, nbr_dist, len(per_values)))
+                    #avg_comp = np.mean(these_comp)
+                    avg_comp = np.average(these_comp, weights = frames_per_epoch)
+                    for k, n in enumerate(ncomp):
+                        if n >= avg_comp:
+                            n_index = k-1
+                            break
+                    if avg_comp == np.min(ncomp):
+                        n_index = 0
+                    curves = thruput_per[n_index:n_index+2,d,:]
+                    this_curve = np.zeros((nbr_per))
+                    for p in range(0, nbr_per):
+                        this_curve[p] = interpol(avg_comp, 
+                            [ncomp[n_index], ncomp[n_index+1]], curves[:,p])
+                    corrected_thru = interpol(fc_snr[d]*this_noise, 
+                            all_fluxes[d,:], this_curve)
+                    
+                    print(this_avg_thruput, corrected_thru)
+                    
+                    #this_avg_thruput = corrected_thru
+                    if this_avg_thruput < through_thresh[d]:
+                        contrasts[i,0] = 0
+                        contrasts[i,1] = 1
+                        continue
+                    
+                    if isinstance(starphot, float) or isinstance(starphot, int):
+                        this_contrast = (
+                            (sigma * this_noise) / this_avg_thruput
+                        ) / starphot
+                    else:
+                        this_contrast = (
+                            (sigma * this_noise) / this_avg_thruput
+                        ) / np.median(starphot)
+                    
+                    
+                    contrasts[i,0] = this_avg_thruput
+                    contrasts[i,1] = this_contrast
+                    print(these_comp)
+                    print(contrasts[i,:])
+                #print(contrasts)
+                #if np.sum(contrasts == 1) == nnpcs:
+                #    continue
+                #Optimal_comp[N,d] = ncomp[np.argmin(contrasts)]
+                #if np.min(contrasts) < Contrast_progress[int(d)][-1]:
+                #    Contrast_progress[d].append(np.min(contrasts))
+                
+                if np.sum(contrasts[:,1] == 1) == nnpcs:
+                    Improvements[N,d,1] = 1
+                    Improvements[N,d,0] = Optimal_comp[N,d]
+                else:
+                    #print(np.min(contrasts[:,1]))
+                    BestCompInd = np.argmin(contrasts[:,1])
+                    Improvements[N,d,1] = np.min(contrasts[:,1])
+                    Improvements[N,d,0] = ncomp[BestCompInd]
+                    Improvements[N,d,2] = contrasts[BestCompInd,0]
+        
+                if approximation == 3:
+                    if Improvements[N,d,1] < Contrast_progress[d][-1]:
+                        Optimal_comp[N,d] = Improvements[N,d,0]
+                        Contrast_progress[d].append(Improvements[N,d,1])
+                        if through_up:
+                            through_thresh[d] = Improvements[N,d,2]
+                        I+=1
+                    else:
+                        no_found[d] +=1
+        
+        #print(Improvements)
+        for d in range(nbr_dist):
+            if d in Done:
+                continue
+            
+            if approximation == 3:
+                if no_found[d] == nbr_epochs:
+                    Done.append(d)
+                    continue
+            
+            if approximation == 0:
+                Best_C = np.min(Improvements[:,d,1])
+                if Best_C >= Contrast_progress[int(d)][-1]:
+                    Done.append(d)
+                    continue
+                Best_N = np.argmin(Improvements[:,d,1])
+                Optimal_comp[Best_N,d] = Improvements[Best_N,d,0]
+                Contrast_progress[d].append(Best_C)
+                if through_up:
+                    through_thresh[d] = Improvements[Best_N,d,2]
+                #print(through_thresh)
+                I+=1
+                
+        #print(Optimal_comp)
+        if len(Done) == nbr_dist:
+            print('Done after {}'.format(I))
+            break
+    
+    print(through_thresh)
+    return Optimal_comp, Optimal_comp_basis, Contrast_progress, flux_wanted
+
 
 
 
@@ -3716,3 +4979,16 @@ def apertureOne_flux(array, yc, xc, fwhm, ap_factor=1, mean=False, verbose=False
     flux = obj_flux
 
     return flux
+
+
+def NextComb(indices, nnpcs, nbr_epochs):
+    
+    k=0
+    for e in range(nbr_epochs):
+        if indices[e] == nnpcs-1:
+            indices[e] = 0
+        else:
+            k = e
+            indices[k] += 1
+            break
+    return indices,k
