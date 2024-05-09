@@ -4265,7 +4265,7 @@ def contrast_multi_epoch_walk3(
     all_injected_flux = np.zeros((nbr_dist, nbranch))
     
     if np.isscalar(fc_snr):
-        fc_snr = np.array(fc_snr)
+        fc_snr = np.array([fc_snr])
     elif isinstance(fc_snr, tuple):
         fc_snr = np.linspace(fc_snr[0], fc_snr[1], nbr_dist)
     
