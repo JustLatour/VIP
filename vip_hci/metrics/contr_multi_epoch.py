@@ -3655,7 +3655,19 @@ def contrast_multi_epoch_walk3(
     
     -approximation: Determines the level of approximation to optimize the contrast
     or the snr depending on the mode.
-    approximation == 0 only recommended for small datasets, or a small number of 
+        -1: no approximation. All possibilities tested
+        0: test all isolated epochs for improvements, chooses the best
+        1: switch from approx = 1 to approx = 3 once a number of steps equal to
+        the switch parameter has been done
+        2: test all isolated epochs, apply all the best changes at once. Switches
+        to approx == 3 once the number of steps done is equal to switch
+        3: Test the epochs in order and apply the first best change of component
+        it finds
+        5:Optimized entirely separately.
+        Can then be a tuple, meaning the components found this way will be used
+        as starting point for approximation[1] mode. Switch is then applicable
+        to this method
+    approximation == 0 or -1 only recommended for small datasets, or a small number of 
     epochs. 
     
     -flux: Fix the flux injected for the fake companions. Takes precedence over
@@ -4030,7 +4042,35 @@ def contrast_multi_epoch_walk3(
             return (Optimal_comp, Optimal_comp_basis, snr_flux_basis, snr_progress,
                     flux_progress, Best_frame_basis, Best_frame)
         
+        elif approximation == 5 or (isinstance(approximation, tuple) and approximation[0] == 5):
+            for N in range(nbr_epochs):
+                this_snr_flux=np.array([get_snr(np.median(res_cube_no_fc[n,
+                    indices_epochs[N*2]:indices_epochs[(N*2)+1],:,:], axis = 0),
+                    y_source, x_source, fwhm, fmerit) for n in range(nnpcs)])
+                
+                Optimal_comp[N] = ncomp[np.argmax(this_snr_flux[:,0])]
+            
+            res_cube_a = np.zeros((NbrImages, SizeImage, SizeImage))
+            Best_frame_basis = frames_basis_no_fc[np.argmax(snr_flux_basis[:, 0])]
+            for Nbis in range(nbr_epochs):
+                this_comp = int(np.where(ncomp == Optimal_comp[Nbis])[0])
+                res_cube_a[indices_epochs[Nbis*2]:
+                    indices_epochs[(Nbis*2)+1],:,:] = res_cube_no_fc[
+                    this_comp,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+            Best_frame = np.median(res_cube_a, axis = 0)
+            
+            final_snr_flux = get_snr(Best_frame, y_source, x_source, fwhm, fmerit)
+            snr_progress.append(final_snr_flux[0])
+            flux_progress.append(final_snr_flux[1])
+            
+            if isinstance(approximation, tuple):
+                approximation = approximation[1]
+            else:
+                return (Optimal_comp, Optimal_comp_basis, snr_flux_basis, snr_progress,
+                    flux_progress, Best_frame_basis, Best_frame)
+            
         
+        counter = 0
         while I < iterations:
         #for I in range(iterations):
             Improvements = np.zeros((nbr_epochs,3))
@@ -4107,6 +4147,7 @@ def contrast_multi_epoch_walk3(
                         no_found += 1
                         
             if no_found == nbr_epochs:
+                print('Done after {}'.format(I))
                 break
             if approximation == 0 or approximation == 1:
                 #print(Improvements)
@@ -4130,19 +4171,38 @@ def contrast_multi_epoch_walk3(
                     print(snr_progress[-1])
                 
                 if approximation == 1:
-                    for j in range(nbr_epochs):
-                        counter = 0
-                        for  k in range(nbr_epochs):
-                            if k == j:
-                                continue
-                            if Improvements[j,0] == Improvements[k,0]:
-                                counter += 1
-                            if counter > nbr_epochs/switch:
-                                print("SWTICHED TO APPROXIMATION = 3")
-                                approximation = 3
-                                break
-                        if approximation == 3:
-                            break
+                    counter += 1
+                    if counter == switch:
+                        print("Switch to approximation == 3")
+                        approximation = 3
+
+            elif approximation == 2:
+                for N in range(nbr_epochs):
+                    if Improvements[N,0] > snr_progress[-1]:
+                        Optimal_comp[N] = Improvements[N,2]
+                        
+                print(Optimal_comp)
+                res_cube_a = np.zeros((NbrImages, SizeImage, SizeImage))
+                    
+                for Nbis in range(nbr_epochs):
+                    this_comp = int(np.where(ncomp == Optimal_comp[Nbis])[0])
+                    res_cube_a[indices_epochs[Nbis*2]:
+                        indices_epochs[(Nbis*2)+1],:,:] = res_cube_no_fc[
+                        this_comp,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+
+                this_frame = np.median(res_cube_a, axis = 0)
+                    
+                this_snr_flux = get_snr(this_frame, 
+                                    y_source, x_source, fwhm, fmerit)
+                
+                snr_progress.append(this_snr_flux[0])
+                flux_progress.append(this_snr_flux[1])
+                if verbose:
+                    print(snr_progress[-1])
+                counter += 1
+                if counter == switch:
+                    print("Switch to approximation == 3")
+                    approximation = 3
             I+=1
         
         Best_frame_basis = frames_basis_no_fc[np.argmax(snr_flux_basis[:, 0])]
@@ -4353,10 +4413,16 @@ def contrast_multi_epoch_walk3(
             snrmin = np.min(snr_basis[n,d,:])
             if snr_target < snrmax and snr_target > snrmin:
                 flux_wanted[n,d] = interpol(snr_target, snr_basis[n,d,:], all_fluxes[d,:])
-            elif snr_target > snrmax:
-                flux_wanted[n,d] = all_fluxes[d, np.argmax(snr_basis[n,d,:])]
-            elif snr_target < snrmin:
-                flux_wanted[n,d] = all_fluxes[d, np.argmin(snr_basis[n,d,:])]
+            else:
+                maxF = fc_snr[d]*np.max(noise_avg[:,d,0])
+                minF = fc_snr[d]*np.min(noise_avg[:,d,0])
+                flux_int = interpol(snr_target, snr_basis[n,d,:], all_fluxes[d,:])
+                if flux_int < minF and flux_int > maxF:
+                    flux_wanted[n,d] = flux_int
+                elif snr_target > snrmax:
+                    flux_wanted[n,d] = all_fluxes[d, np.argmax(snr_basis[n,d,:])]
+                elif snr_target < snrmin:
+                    flux_wanted[n,d] = all_fluxes[d, np.argmin(snr_basis[n,d,:])]
         
         nbr_neg = np.sum((flux_wanted[:,d]<0))
         if nbr_neg > 1:
