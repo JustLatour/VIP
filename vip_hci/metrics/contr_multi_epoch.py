@@ -3637,10 +3637,20 @@ def contrast_multi_epoch_walk3(
     **algo_dict,
 ):
     """
-    -step: contains the number of image in each epoch. If an integer, all epoch
+    -step_walk: contains the number of image in each epoch. If an integer, all epochs
     will have the same number of images
     
     -nbr_cubes: the number of subdivisions in the processing of the cube
+    
+    -cube_delimiter: indices containing the limits of each cube to be processed.
+    Indices numbered relative to the whole master cube.
+    
+    -cube_ref_delimiter: indices containing the limits of cube_ref for each cube to be
+    processed. Indices numbered relative to the whole master cube.
+    
+    -epoch_indices: containes limits of each of the subdivisions of each cube to be
+    processed. Allows part of a same cube to be processed differently.
+    Indices numbered relative to the whole master cube.
     
     -through_thresh:Threshold put on thhe throughput for it to be considered valid
     if through_tresh is 'auto', the threshold is chosen as the throughput of the
@@ -3917,9 +3927,9 @@ def contrast_multi_epoch_walk3(
                 Re = int(0)
                 if epoch_indices.shape[0] == nbr_cubes*2:
                     Re = int(1)
-                algo_dict['epoch_indices'] = epoch_indices[N+Re*N:N+Re*N+2]
+                algo_dict['epoch_indices'] = epoch_indices[N+Re*N:N+Re*N+2] - indices_cube_adi[0]
             else:
-                algo_dict['epoch_indices'] = (indices_cube_adi[0],indices_cube_adi[1])
+                algo_dict['epoch_indices'] = (indices_cube_adi[0],indices_cube_adi[1]) - indices_cube_adi[0]
             
         if 'delta_rot' in algo_dict.keys():
             if isinstance(algo_dict['delta_rot'], list):
@@ -3931,10 +3941,11 @@ def contrast_multi_epoch_walk3(
         
         
         if algo_name == 'pca_annular_corr':
-            indices_done = algo_dict['epoch_indices']
+            indices_done = algo_dict['epoch_indices'] + indices_cube_adi[0]
         else:
-            indices_done = indices_cube_adi
+            indices_done = np.array(indices_cube_adi) + indices_cube_adi[0]
         
+        algo_dict['epoch_indices'] += indices_cube_adi[0]
         if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
             _, res_cube_no_fc[:, indices_done[0]:indices_done[1], :, :], _ = algo(
                         cube=cube_adi, angle_list=this_angle_list, fwhm=fwhm_med,
