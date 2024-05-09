@@ -3943,7 +3943,7 @@ def contrast_multi_epoch_walk3(
         if algo_name == 'pca_annular_corr':
             indices_done = algo_dict['epoch_indices'] + indices_cube_adi[0]
         else:
-            indices_done = np.array(indices_cube_adi) + indices_cube_adi[0]
+            indices_done = np.array(indices_cube_adi)
         
         algo_dict['epoch_indices'] += indices_cube_adi[0]
         if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
@@ -4364,10 +4364,10 @@ def contrast_multi_epoch_walk3(
                         Re = int(0)
                         if epoch_indices.shape[0] == nbr_cubes*2:
                             Re = int(1)
-                        algo_dict['epoch_indices'] = epoch_indices[N+Re*N:N+Re*N+2]
+                        algo_dict['epoch_indices'] = epoch_indices[N+Re*N:N+Re*N+2] - indices_cube_adi[0]
                     else:
-                        algo_dict['epoch_indices'] = (indices_cube_adi[0],indices_cube_adi[1])
-                
+                        algo_dict['epoch_indices'] = (indices_cube_adi[0],indices_cube_adi[1]) - indices_cube_adi[0]
+                    
                 if 'delta_rot' in algo_dict.keys():
                     if isinstance(algo_dict['delta_rot'], list):
                         algo_dict['delta_rot'] = np.array(algo_dict['delta_rot'])
@@ -4375,11 +4375,12 @@ def contrast_multi_epoch_walk3(
                         if algo_dict['delta_rot'].shape[0] != nbr_cubes:
                             raise ValueError('delta_rot has wrong length')
                         algo_dict['delta_rot'] = algo_dict['delta_rot'][N]
-            
+                
+                
                 if algo_name == 'pca_annular_corr':
-                    indices_done = algo_dict['epoch_indices']
+                    indices_done = algo_dict['epoch_indices'] + indices_cube_adi[0]
                 else:
-                    indices_done = indices_cube_adi
+                    indices_done = np.array(indices_cube_adi)
                 if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
                     _, res_cube_fc[:,br,indices_done[0]:indices_done[1],:,:], _ = algo(
                         cube=cube_fc, angle_list=angle_list, fwhm=fwhm_med, 
@@ -4597,10 +4598,10 @@ def contrast_multi_epoch_walk3(
                     Re = int(0)
                     if epoch_indices.shape[0] == nbr_cubes*2:
                         Re = int(1)
-                    algo_dict['epoch_indices'] = epoch_indices[N+Re*N:N+Re*N+2]
+                    algo_dict['epoch_indices'] = epoch_indices[N+Re*N:N+Re*N+2] - indices_cube_adi[0]
                 else:
-                    algo_dict['epoch_indices'] = (indices_cube_adi[0],indices_cube_adi[1])
-            
+                    algo_dict['epoch_indices'] = (indices_cube_adi[0],indices_cube_adi[1]) - indices_cube_adi[0]
+                
             if 'delta_rot' in algo_dict.keys():
                 if isinstance(algo_dict['delta_rot'], list):
                     algo_dict['delta_rot'] = np.array(algo_dict['delta_rot'])
@@ -4608,11 +4609,12 @@ def contrast_multi_epoch_walk3(
                     if algo_dict['delta_rot'].shape[0] != nbr_cubes:
                         raise ValueError('delta_rot has wrong length')
                     algo_dict['delta_rot'] = algo_dict['delta_rot'][N]
-        
+            
+            
             if algo_name == 'pca_annular_corr':
-                indices_done = algo_dict['epoch_indices']
+                indices_done = algo_dict['epoch_indices'] + indices_cube_adi[0]
             else:
-                indices_done = indices_cube_adi
+                indices_done = np.array(indices_cube_adi)
             if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
                 _, res_cube_fc[:,br,indices_done[0]:indices_done[1],:,:], _ = algo(
                     cube=cube_fc, angle_list=angle_list, fwhm=fwhm_med, 
