@@ -127,9 +127,8 @@ def pca_ardi_annulus_mask(
     fwhm,
     asize,
     n_segments = 8,
-    wedge = (0, 360),
     mask_rdi = None,
-    pa_thr=1,
+    pa_thr=0,
     ncomp=1,
     svd_mode="lapack",       
     nproc=None,
@@ -180,12 +179,14 @@ def pca_ardi_annulus_mask(
     if isinstance(ncomp, list):
         ncomp = np.array(ncomp)
     
-    angular_range = wedge[1]-wedge[0] #in degrees
+    angular_range = 360 #in degrees
     ann_center = inner_radius+(asize/2)
 
     angular_width = angular_range/n_segments
-    centers = [wedge[0] + angular_width/2]
-    while (centers[-1]+angular_width) < wedge[1]:
+    centers = [theta_init + angular_width/2]
+    total_rot = 0
+    while (total_rot+angular_width) < 360:
+        total_rot += angular_width
         centers.append(centers[-1]+angular_width)
 
     n_images = len(centers)
@@ -211,7 +212,7 @@ def pca_ardi_annulus_mask(
         boat = np.zeros_like(cube[0])
         boat[Indices_segments[i][0], Indices_segments[i][1]] = 1
         
-        plot_frames(boat)
+        #plot_frames(boat)
         
         sci_cube_skysub = np.zeros((nnpcs, cube.shape[0], cube.shape[1], cube.shape[2]))
         for k in range(cube.shape[0]):
@@ -222,57 +223,57 @@ def pca_ardi_annulus_mask(
             elif mask_rdi == 'annulus':
                 anchor_k = mask_annulus - boat_k
             
-            boat_k = mask_annulus
             boat_k = np.ones_like(cube[0])
             
-            if pa_thr != 0:
-                indices = np.hstack((_find_indices_adi2(angle_list, k, pa_thr),k))
-                indices = np.sort(indices)
-            else:
-                indices = np.arange(0, cube.shape[0])
+            adi_indices = _find_indices_adi2(angle_list, k, pa_thr)
+            adi_indices = np.sort(adi_indices)
             
-            ind = np.where(indices == k)[0][0]
+            frame_boat = cube[k] * boat_k
+            frame_anchor = cube[k] * anchor_k
             
-            cube_used = cube[indices]
+            frame_anchor_l = prepare_matrix(frame_anchor[np.newaxis,:,:], scaling=None,
+                                                verbose=False)
+            
+            cube_used = cube[adi_indices]
             
             cube_anchor = cube_used * anchor_k
             cube_anchor_l = prepare_matrix(cube_anchor, scaling=None, verbose=False)
-            
-            cube_boat = prepare_matrix(cube_used * boat_k, scaling=None, verbose=False)
-            frame_boat = cube[k]
-            
+        
+            cube_boat = cube_used * boat_k
+            cube_boat_l = prepare_matrix(cube_boat, scaling=None, verbose=False)
+        
             sky_kl = np.dot(cube_anchor_l, cube_anchor_l.T)
             #print(sky_kl)
             #print(sky_kl.shape)
             Msky_kl = prepare_matrix(sky_kl, scaling=None, verbose=False)
             sky_pcs = svd_wrapper(Msky_kl, 'lapack', sky_kl.shape[0], False)
             sky_pcs_kl = sky_pcs.reshape(sky_kl.shape[0], sky_kl.shape[1])
-            
+        
             sky_pc_anchor = np.dot(sky_pcs_kl, cube_anchor_l)
             sky_pcs_anchor_cube = sky_pc_anchor.reshape(cube_anchor.shape[0],
-                                                        cube_anchor.shape[1],
-                                                        cube_anchor.shape[2])
-            
-            sky_pcs_boat_cube = np.dot(sky_pcs_kl, cube_boat).reshape(cube_anchor.shape[0],
-                                                                     cube_anchor.shape[1],
-                                                                     cube_anchor.shape[2])
+                                                    cube_anchor.shape[1],
+                                                    cube_anchor.shape[2])
+        
+            sky_pcs_boat_cube = np.dot(sky_pcs_kl, cube_boat_l).reshape(cube_anchor.shape[0],
+                                                                 cube_anchor.shape[1],
+                                                                 cube_anchor.shape[2])
             #print(sky_pcs_boat_cube.shape)
-            transf_sci = np.zeros((cube_anchor.shape[0], cube_anchor.shape[0]))
-            for j in range(cube_anchor.shape[0]):
-                transf_sci[:, j] = np.inner(sky_pc_anchor, cube_anchor_l[j].T)
+            transf_sci = np.zeros((cube_anchor.shape[0]))  #sky number image, science number image
+           
+            transf_sci = np.inner(sky_pc_anchor, frame_anchor_l[0].T)
 
             #print(transf_sci.shape)
             #print(transf_sci)
             Msky_pcs_anchor = prepare_matrix(sky_pcs_anchor_cube, scaling=None,
-                                             verbose=False)
+                                         verbose=False)
 
             mat_inv = np.linalg.inv(np.dot(Msky_pcs_anchor, Msky_pcs_anchor.T))
             transf_sci_scaled = np.dot(mat_inv, transf_sci)
             #print(transf_sci_scaled)
-            
-            tmp_sky = np.zeros_like(cube[k])
+        
+            tmp_sky = np.zeros_like(cube[0])
             for n in range(np.max(ncomp)):
-                tmp_sky += np.array([transf_sci_scaled[n, ind]*sky_pcs_boat_cube[n]]).reshape(cube.shape[1], cube.shape[2])
+                tmp_sky += np.array([transf_sci_scaled[n]*sky_pcs_boat_cube[n]]).reshape(cube.shape[1], cube.shape[2])
                 if n+1 in ncomp:
                     index = np.where(ncomp == n+1)[0][0]
                     sci_cube_skysub[index,k] = frame_boat - tmp_sky
@@ -315,8 +316,8 @@ def pca_ardi_annulus_masked(
     fwhm,
     asize,
     n_segments = 8,
-    wedge = (0, 360),
     mask_rdi = None,
+    delta = False,
     pa_thr=1,
     ncomp=1,
     svd_mode="lapack",       
@@ -368,14 +369,16 @@ def pca_ardi_annulus_masked(
     if isinstance(ncomp, list):
         ncomp = np.array(ncomp)
     
-    angular_range = wedge[1]-wedge[0] #in degrees
+    angular_range = 360 #in degrees
     ann_center = inner_radius+(asize/2)
 
 
     para_range = np.max(angle_list) - np.min(angle_list)
     angular_width = angular_range/n_segments
-    centers = [wedge[0]]
-    while (centers[-1]+angular_width) < wedge[1]:
+    centers = [theta_init + angular_width/2]
+    total_rot = 0
+    while (total_rot+angular_width) < 360:
+        total_rot += angular_width
         centers.append(centers[-1]+angular_width)
 
     n_images = len(centers)
@@ -405,7 +408,7 @@ def pca_ardi_annulus_masked(
         
         sci_cube_skysub = np.zeros((nnpcs, cube.shape[0], cube.shape[1], cube.shape[2]))
         
-        position = center + para_range/2 - angle_list[-1]
+        position = center - para_range/2 - angle_list[0]
         boat_k = mask_local_boat(mask_annulus, position, angular_width+para_range)
         if mask_rdi is None:
             anchor_k = np.ones_like(cube[0]) - boat_k
@@ -462,19 +465,22 @@ def pca_ardi_annulus_masked(
                         
         else:
             for k in range(cube.shape[0]):
-                indices = np.hstack((_find_indices_adi2(angle_list, k, pa_thr),k))
-                indices = np.sort(indices)
-            
-                ind = np.where(indices == k)[0][0]
+                adi_indices = _find_indices_adi2(angle_list, k, pa_thr)
+                adi_indices = np.sort(adi_indices)
                 
-                cube_used = cube[indices]
+                frame_boat = cube[k] * boat_k
+                frame_anchor = cube[k] * anchor_k
+                
+                frame_anchor_l = prepare_matrix(frame_anchor[np.newaxis,:,:], scaling=None,
+                                                    verbose=False)
+                
+                cube_used = cube[adi_indices]
                 
                 cube_anchor = cube_used * anchor_k
                 cube_anchor_l = prepare_matrix(cube_anchor, scaling=None, verbose=False)
             
-                cube_boat = cube * boat_k
+                cube_boat = cube_used * boat_k
                 cube_boat_l = prepare_matrix(cube_boat, scaling=None, verbose=False)
-                frame_boat = cube_boat[k]
             
                 sky_kl = np.dot(cube_anchor_l, cube_anchor_l.T)
                 #print(sky_kl)
@@ -492,9 +498,9 @@ def pca_ardi_annulus_masked(
                                                                      cube_anchor.shape[1],
                                                                      cube_anchor.shape[2])
                 #print(sky_pcs_boat_cube.shape)
-                transf_sci = np.zeros((cube_anchor.shape[0], cube_anchor.shape[0]))
-                for j in range(cube_anchor.shape[0]):
-                    transf_sci[:, j] = np.inner(sky_pc_anchor, cube_anchor_l[j].T)
+                transf_sci = np.zeros((cube_anchor.shape[0]))  #sky number image, science number image
+               
+                transf_sci = np.inner(sky_pc_anchor, frame_anchor_l[0].T)
 
                 #print(transf_sci.shape)
                 #print(transf_sci)
@@ -505,9 +511,9 @@ def pca_ardi_annulus_masked(
                 transf_sci_scaled = np.dot(mat_inv, transf_sci)
                 #print(transf_sci_scaled)
             
-                tmp_sky = np.zeros_like(cube[k])
+                tmp_sky = np.zeros_like(cube[0])
                 for n in range(np.max(ncomp)):
-                    tmp_sky += np.array([transf_sci_scaled[n, ind]*sky_pcs_boat_cube[n]]).reshape(cube.shape[1], cube.shape[2])
+                    tmp_sky += np.array([transf_sci_scaled[n]*sky_pcs_boat_cube[n]]).reshape(cube.shape[1], cube.shape[2])
                     if n+1 in ncomp:
                         index = np.where(ncomp == n+1)[0][0]
                         sci_cube_skysub[index,k] = frame_boat - tmp_sky
