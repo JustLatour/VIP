@@ -7,6 +7,7 @@ Created on Sun Nov 12 12:16:20 2023
 
 import numpy as np
 from multiprocessing import cpu_count
+from hciplot import plot_frames, plot_cubes
 from typing import Tuple, Union, List
 from dataclasses import dataclass
 from enum import Enum
@@ -24,7 +25,7 @@ from ..preproc import (cube_derotate, cube_collapse, cube_subtract_sky_pca,
                        check_pa_vector, check_scal_vector, cube_crop_frames)
 from ..stats import descriptive_stats
 from ..var import (frame_center, dist, prepare_matrix, reshape_matrix,
-                   cube_filter_lowpass, mask_circle)
+                   cube_filter_lowpass, mask_circle, get_annulus_segments)
 
 
 from .pca_fullfr import *
@@ -149,6 +150,8 @@ def pca_ardi_annulus_mask(
     **rot_options,
 ):
     """
+    Small boat following the targeted zone
+    
     asize and inner_radius in pixels
     location in degrees
     step_location in degrees
@@ -161,6 +164,13 @@ def pca_ardi_annulus_mask(
         raise TypeError("Input array is not a cube or 3d array")
     if array.shape[0] != angle_list.shape[0]:
         raise TypeError("Input vector or parallactic angles has wrong length")
+        
+        
+    if verbose:
+        print("PCA per annulus (or annular sectors):")
+        
+    global start_time
+    start_time = time_ini()
 
     n, y, x = array.shape
 
@@ -180,10 +190,9 @@ def pca_ardi_annulus_mask(
 
     n_images = len(centers)
     
-    mask_annulus = np.ones_like(cube[0], dtype = int)
-    mask_annulus = mask_circle(mask_annulus, inner_radius)
-    mask_annulus = mask_circle(mask_annulus, inner_radius + asize, mode = 'out')
-    cube = cube * mask_annulus
+    yy,xx = get_annulus_segments(cube[0], inner_radius, asize, 1, 0)[0]
+    mask_annulus = np.zeros_like(cube[0], dtype = int)
+    mask_annulus[yy,xx] = 1
     
     yy, xx = np.where(mask_annulus == 1)
     
@@ -196,21 +205,25 @@ def pca_ardi_annulus_mask(
     nnpcs = ncomp.shape[0]
     
     results = np.zeros((n_images, nnpcs, cube.shape[1], cube.shape[2]))
+    
+    Indices_segments = get_annulus_segments(cube[0], inner_radius, asize, n_segments, theta_init)
     for i, center in enumerate(centers):
-        boat = mask_local_boat(mask_annulus, center, angular_width)
-        if mask_rdi is None:
-            anchor = np.ones_like(cube[0]) - boat
-        elif mask_rdi == 'annulus':
-            anchor = mask_annulus - boat
+        boat = np.zeros_like(cube[0])
+        boat[Indices_segments[i][0], Indices_segments[i][1]] = 1
+        
+        plot_frames(boat)
         
         sci_cube_skysub = np.zeros((nnpcs, cube.shape[0], cube.shape[1], cube.shape[2]))
         for k in range(cube.shape[0]):
             position = center - angle_list[k]
-            boat_k = mask_local_boat(mask_annulus, position, angular_width)
+            boat_k = mask_local_boat(mask_annulus, position, angular_width+1)
             if mask_rdi is None:
-                anchor_k = np.ones_like(cube[0]) - boat
+                anchor_k = np.ones_like(cube[0]) - boat_k
             elif mask_rdi == 'annulus':
-                anchor_k = mask_annulus - boat
+                anchor_k = mask_annulus - boat_k
+            
+            boat_k = mask_annulus
+            boat_k = np.ones_like(cube[0])
             
             if pa_thr != 0:
                 indices = np.hstack((_find_indices_adi2(angle_list, k, pa_thr),k))
@@ -264,6 +277,9 @@ def pca_ardi_annulus_mask(
                     index = np.where(ncomp == n+1)[0][0]
                     sci_cube_skysub[index,k] = frame_boat - tmp_sky
                     
+        if verbose:
+            print("segment {} done".format(i))
+                    
         #derotation
         cube_der = np.zeros_like(sci_cube_skysub)
         for n in range(nnpcs):
@@ -280,10 +296,250 @@ def pca_ardi_annulus_mask(
         
         
     results = np.sum(results, axis = 0)
-    #accelerate oit if delta_rot = 0, calculate only once principal components
-    #n_segments???
+    
+    if verbose:
+        print("Done derotating and combining.")
+        timing(start_time)
+
+    if len(ncomp) == 1:
+        results = results[0,:,:]
     #ncomp is a list or not??
-    return results, centers
+    return results
+
+
+
+def pca_ardi_annulus_masked(
+    cube,
+    angle_list,
+    inner_radius,
+    fwhm,
+    asize,
+    n_segments = 8,
+    wedge = (0, 360),
+    mask_rdi = None,
+    pa_thr=1,
+    ncomp=1,
+    svd_mode="lapack",       
+    nproc=None,
+    min_frames_lib=2,
+    max_frames_lib=200,
+    tol=1e-1,
+    scaling=None,
+    imlib="vip-fft",
+    interpolation="lanczos4",
+    collapse="median",
+    full_output=False,
+    verbose=1,
+    cube_ref=None,
+    theta_init=0,
+    weights=None,
+    cube_sig=None,
+    left_eigv=False,
+    **rot_options,
+):
+    """
+    Larger boat covering the whole movement of the parallactic angle
+    
+    asize and inner_radius in pixels
+    location in degrees
+    step_location in degrees
+    -mask_rdi: location on which project the components. anchor. 
+        If None, full-frame
+        If mask_rdi == 'annulus', only the rest of the annulus
+    """
+    array = cube
+    if array.ndim != 3:
+        raise TypeError("Input array is not a cube or 3d array")
+    if array.shape[0] != angle_list.shape[0]:
+        raise TypeError("Input vector or parallactic angles has wrong length")
+        
+        
+    if verbose:
+        print("PCA per annulus (or annular sectors):")
+        
+    global start_time
+    start_time = time_ini()
+
+    n, y, x = array.shape
+
+    angle_list = check_pa_vector(angle_list)
+    if np.isscalar(ncomp):
+        ncomp = np.array([ncomp])
+    if isinstance(ncomp, list):
+        ncomp = np.array(ncomp)
+    
+    angular_range = wedge[1]-wedge[0] #in degrees
+    ann_center = inner_radius+(asize/2)
+
+
+    para_range = np.max(angle_list) - np.min(angle_list)
+    angular_width = angular_range/n_segments
+    centers = [wedge[0]]
+    while (centers[-1]+angular_width) < wedge[1]:
+        centers.append(centers[-1]+angular_width)
+
+    n_images = len(centers)
+    
+    yy,xx = get_annulus_segments(cube[0], inner_radius, asize, 1, 0)[0]
+    mask_annulus = np.zeros_like(cube[0], dtype = int)
+    mask_annulus[yy,xx] = 1
+    
+    yy, xx = np.where(mask_annulus == 1)
+    
+    #then convert to bool, boucle on centers, get mask of zone to subtract, rotate it per image...
+    cy, cx = frame_center(cube[0])
+    twopi = 2*np.pi
+    
+    masks_centers = []
+    
+    nnpcs = ncomp.shape[0]
+    
+    results = np.zeros((n_images, nnpcs, cube.shape[1], cube.shape[2]))
+    
+    Indices_segments = get_annulus_segments(cube[0], inner_radius, asize, n_segments, theta_init)
+    for i, center in enumerate(centers):
+        boat = np.zeros_like(cube[0])
+        boat[Indices_segments[i][0], Indices_segments[i][1]] = 1
+        
+        plot_frames(boat)
+        
+        sci_cube_skysub = np.zeros((nnpcs, cube.shape[0], cube.shape[1], cube.shape[2]))
+        
+        position = center + para_range/2 - angle_list[-1]
+        boat_k = mask_local_boat(mask_annulus, position, angular_width+para_range)
+        if mask_rdi is None:
+            anchor_k = np.ones_like(cube[0]) - boat_k
+        elif mask_rdi == 'annulus':
+            anchor_k = mask_annulus - boat_k
+            
+        plot_frames(anchor_k)
+        
+        boat_k = np.ones_like(cube[0])
+        
+        if pa_thr == 0:
+            cube_anchor = cube * anchor_k
+            cube_anchor_l = prepare_matrix(cube_anchor, scaling=None, verbose=False)
+            
+            cube_boat = cube * boat_k
+            cube_boat_l = prepare_matrix(cube_boat, scaling=None, verbose=False)
+            
+            sky_kl = np.dot(cube_anchor_l, cube_anchor_l.T)
+            #print(sky_kl)
+            #print(sky_kl.shape)
+            Msky_kl = prepare_matrix(sky_kl, scaling=None, verbose=False)
+            sky_pcs = svd_wrapper(Msky_kl, 'lapack', sky_kl.shape[0], False)
+            sky_pcs_kl = sky_pcs.reshape(sky_kl.shape[0], sky_kl.shape[1])
+            
+            sky_pc_anchor = np.dot(sky_pcs_kl, cube_anchor_l)
+            sky_pcs_anchor_cube = sky_pc_anchor.reshape(cube_anchor.shape[0],
+                                                        cube_anchor.shape[1],
+                                                        cube_anchor.shape[2])
+            
+            sky_pcs_boat_cube = np.dot(sky_pcs_kl, cube_boat_l).reshape(cube_anchor.shape[0],
+                                                                     cube_anchor.shape[1],
+                                                                     cube_anchor.shape[2])
+            #print(sky_pcs_boat_cube.shape)
+            transf_sci = np.zeros((cube_anchor.shape[0], cube_anchor.shape[0]))
+            for j in range(cube_anchor.shape[0]):
+                transf_sci[:, j] = np.inner(sky_pc_anchor, cube_anchor_l[j].T)
+
+            #print(transf_sci.shape)
+            #print(transf_sci)
+            Msky_pcs_anchor = prepare_matrix(sky_pcs_anchor_cube, scaling=None,
+                                             verbose=False)
+
+            mat_inv = np.linalg.inv(np.dot(Msky_pcs_anchor, Msky_pcs_anchor.T))
+            transf_sci_scaled = np.dot(mat_inv, transf_sci)
+            #print(transf_sci_scaled)
+            
+            for k in range(cube.shape[0]):
+                tmp_sky = np.zeros_like(cube[0])
+                for n in range(np.max(ncomp)):
+                    tmp_sky += np.array(transf_sci_scaled[n, k]*sky_pcs_boat_cube[n]).reshape(cube.shape[1], cube.shape[2])
+                    if n+1 in ncomp:
+                        index = np.where(ncomp == n+1)[0][0]
+                        sci_cube_skysub[index,k] = cube_boat[k] - tmp_sky
+                        
+        else:
+            for k in range(cube.shape[0]):
+                indices = np.hstack((_find_indices_adi2(angle_list, k, pa_thr),k))
+                indices = np.sort(indices)
+            
+                ind = np.where(indices == k)[0][0]
+                
+                cube_used = cube[indices]
+                
+                cube_anchor = cube_used * anchor_k
+                cube_anchor_l = prepare_matrix(cube_anchor, scaling=None, verbose=False)
+            
+                cube_boat = cube * boat_k
+                cube_boat_l = prepare_matrix(cube_boat, scaling=None, verbose=False)
+                frame_boat = cube_boat[k]
+            
+                sky_kl = np.dot(cube_anchor_l, cube_anchor_l.T)
+                #print(sky_kl)
+                #print(sky_kl.shape)
+                Msky_kl = prepare_matrix(sky_kl, scaling=None, verbose=False)
+                sky_pcs = svd_wrapper(Msky_kl, 'lapack', sky_kl.shape[0], False)
+                sky_pcs_kl = sky_pcs.reshape(sky_kl.shape[0], sky_kl.shape[1])
+            
+                sky_pc_anchor = np.dot(sky_pcs_kl, cube_anchor_l)
+                sky_pcs_anchor_cube = sky_pc_anchor.reshape(cube_anchor.shape[0],
+                                                        cube_anchor.shape[1],
+                                                        cube_anchor.shape[2])
+            
+                sky_pcs_boat_cube = np.dot(sky_pcs_kl, cube_boat_l).reshape(cube_anchor.shape[0],
+                                                                     cube_anchor.shape[1],
+                                                                     cube_anchor.shape[2])
+                #print(sky_pcs_boat_cube.shape)
+                transf_sci = np.zeros((cube_anchor.shape[0], cube_anchor.shape[0]))
+                for j in range(cube_anchor.shape[0]):
+                    transf_sci[:, j] = np.inner(sky_pc_anchor, cube_anchor_l[j].T)
+
+                #print(transf_sci.shape)
+                #print(transf_sci)
+                Msky_pcs_anchor = prepare_matrix(sky_pcs_anchor_cube, scaling=None,
+                                             verbose=False)
+
+                mat_inv = np.linalg.inv(np.dot(Msky_pcs_anchor, Msky_pcs_anchor.T))
+                transf_sci_scaled = np.dot(mat_inv, transf_sci)
+                #print(transf_sci_scaled)
+            
+                tmp_sky = np.zeros_like(cube[k])
+                for n in range(np.max(ncomp)):
+                    tmp_sky += np.array([transf_sci_scaled[n, ind]*sky_pcs_boat_cube[n]]).reshape(cube.shape[1], cube.shape[2])
+                    if n+1 in ncomp:
+                        index = np.where(ncomp == n+1)[0][0]
+                        sci_cube_skysub[index,k] = frame_boat - tmp_sky
+                    
+        if verbose:
+            print("segment {} done".format(i))
+                    
+        #derotation
+        cube_der = np.zeros_like(sci_cube_skysub)
+        for n in range(nnpcs):
+            cube_der[n,:,:,:] = cube_derotate(
+                sci_cube_skysub[n],
+                angle_list,
+                nproc=nproc,
+                imlib=imlib,
+                interpolation=interpolation,
+                **rot_options,
+            )
+            results[i,n,:,:] = cube_collapse(cube_der[n,:,:,:], mode=collapse, w=weights)
+            results[i,n,:,:] *= boat
+        
+        
+    results = np.sum(results, axis = 0)
+    
+    if verbose:
+        print("Done derotating and combining.")
+        timing(start_time)
+
+    if len(ncomp) == 1:
+        results = results[0,:,:]
+    #ncomp is a list or not??
+    return results
 
 
 def pca_ardi_mask_dist(
@@ -704,6 +960,6 @@ def mask_local_boat(mask_annulus, center, angle):
         mask_s = (phirot >= phi_start) & (phirot < phi_end)
         
     mask_zone = np.zeros_like(mask_annulus)
-    mask_zone[yy[~mask_s], xx[~mask_s]] = 1
+    mask_zone[yy[mask_s], xx[mask_s]] = 1
     
     return np.array(mask_zone, dtype = int)
