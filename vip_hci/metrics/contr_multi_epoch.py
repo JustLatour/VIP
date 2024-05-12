@@ -31,6 +31,8 @@ from ..psfsub.pca_local import *
 from ..psfsub.pca_local import PCA_ANNULAR_Params
 from ..psfsub.pca_multi_epoch import *
 
+from hciplot import plot_frames
+
 def contrast_optimized(
     cube,
     angle_list,
@@ -3907,7 +3909,6 @@ def contrast_multi_epoch_walk3(
             _, res_cube_no_fc, _ = algo(
                 cube=cube, angle_list=angle_list, fwhm=fwhm_med,
                 verbose=verbose, full_output = True, **algo_dict)
-            step = step_walk[N]
             epoch_indices = [0]
             for n in range(nbr_epochs):
                 epoch_indices.append(epoch_indices[-1]+step_walk[n])
@@ -3973,6 +3974,8 @@ def contrast_multi_epoch_walk3(
     
     noise = noise_avg[:, :, 0]
     mean_res = noise_avg[:, :, 1]
+    
+    indices_epochs = np.array(indices_epochs, dtype = int)
     
     
     #minimizing noise in one half of annulus? look at imapct on source on other side
@@ -4802,6 +4805,56 @@ def contrast_multi_epoch_walk3(
         
         return Contrast_progress, All_Optimal_Comp
         
+    elif approximation == 5:
+        for N in range(nbr_epochs):
+            if verbose:
+                print("Processing epoch {}".format(N+1))
+            contrast_values = np.zeros((nbr_dist, nnpcs, 2))
+            for n in range(nnpcs):
+                this_frame = np.median(res_cube_no_fc[n,
+                        indices_epochs[N*2]:indices_epochs[(N*2)+1],:,:], axis = 0)
+                this_frames_fc = np.median(res_cube_fc[n,:,
+                        indices_epochs[N*2]:indices_epochs[(N*2)+1],:,:], axis = 1)
+
+                this_noise = noise_dist(this_frame, rad_dist, fwhm_med, wedge, 
+                            False, debug)[:,0]
+        
+                this_thruput = np.zeros((nbranch, nbr_dist))
+                this_flux = np.array([apertureOne_flux(
+                    (this_frames_fc[br, :, :] - this_frame), loc[:,br,0], loc[:,br,1], fwhm_med
+                ) for br in range(nbranch)])
+                
+                for br in range(nbranch):
+                    this_thruput[br,:] = this_flux[br,:]/all_injected_flux[:, br]
+                
+                this_thruput[np.where(this_thruput < 0)] = 0
+                this_thruput[np.where(this_thruput > 1)] = 0
+                this_contrast = np.zeros((nbr_dist, 2))
+                
+                for d in range(nbr_dist):
+                    this_contrast[d,0] = np.nanmean(this_thruput[:,d], axis = 0)
+                    if this_contrast[d,0] < through_thresh[d]:
+                        this_contrast[d,1] = 1
+                        continue
+                
+                    if isinstance(starphot, float) or isinstance(starphot, int):
+                        this_contrast[d,1] = (
+                            (sigma * this_noise[d]) / this_contrast[d,0]
+                        ) / starphot
+                    else:
+                        this_contrast[d,1] = (
+                            (sigma * this_noise[d]) / this_contrast[d,0]
+                        ) / np.median(starphot)
+                    
+                contrast_values[:,n,:] = this_contrast
+                
+            for d in range(nbr_dist):
+                Ind = np.argmin(contrast_values[d,:,1])
+                Optimal_comp[N] = ncomp[Ind]
+        
+        return (Optimal_comp, Optimal_comp_basis)
+    
+    
     Done = []
     I = 0
     while I < iterations:
