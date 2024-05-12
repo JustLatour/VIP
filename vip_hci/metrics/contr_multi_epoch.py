@@ -3619,6 +3619,7 @@ def contrast_multi_epoch_walk3(
     snr_target=8,
     per_values = [70, 10],
     flux = None,
+    opt_ncomp = None,
     cube_delimiter=None,
     cube_ref_delimiter=None,
     epoch_indices=None,
@@ -3692,6 +3693,10 @@ def contrast_multi_epoch_walk3(
     -flux_increase: if source_xy is not None and flux_increase is True, any 
     change of components that increases the snr must also increase the flux of 
     the source.
+    
+    -opt_ncomp: if flux to inject and optimal ncomp is already known, can skip 
+    its calculation by setting per_values to an empyt list and putting the 
+    optimal number of principal components in opt_ncomp
     """
     
     from ..metrics import snr
@@ -4012,8 +4017,8 @@ def contrast_multi_epoch_walk3(
             for i in range(Ncombinations):
                 if verbose:
                     if i > Ncombinations*(percentage/100) and i < Ncombinations*(percentage/100)+nnpcs:
-                        percentage += 10
                         print("Done at {}%".format(percentage))
+                        percentage += 10
                 res_cube_a = np.zeros((NbrImages, SizeImage, SizeImage))
             
                 these_comp =  []
@@ -4419,94 +4424,111 @@ def contrast_multi_epoch_walk3(
     #snr_basis (nnpcs, nbr_dist, per)
     
     flux_wanted = np.zeros((nnpcs, nbr_dist))
-    for d in range(nbr_dist):
-        for n in range(nnpcs):
-            snrmax = np.max(snr_basis[n,d,:])
-            snrmin = np.min(snr_basis[n,d,:])
-            if snr_target < snrmax and snr_target > snrmin:
-                flux_wanted[n,d] = interpol(snr_target, snr_basis[n,d,:], all_fluxes[d,:])
-            else:
-                maxF = fc_snr[d]*np.max(noise_avg[:,d,0])
-                minF = fc_snr[d]*np.min(noise_avg[:,d,0])
-                flux_int = interpol(snr_target, snr_basis[n,d,:], all_fluxes[d,:])
-                if flux_int < minF and flux_int > maxF:
-                    flux_wanted[n,d] = flux_int
-                elif snr_target > snrmax:
-                    flux_wanted[n,d] = all_fluxes[d, np.argmax(snr_basis[n,d,:])]
-                elif snr_target < snrmin:
-                    flux_wanted[n,d] = all_fluxes[d, np.argmin(snr_basis[n,d,:])]
+    if len(per_values) != 0:
+        for d in range(nbr_dist):
+            for n in range(nnpcs):
+                snrmax = np.max(snr_basis[n,d,:])
+                snrmin = np.min(snr_basis[n,d,:])
+                if snr_target < snrmax and snr_target > snrmin:
+                    flux_wanted[n,d] = interpol(snr_target, snr_basis[n,d,:], all_fluxes[d,:])
+                else:
+                    maxF = fc_snr[d]*np.max(noise_avg[:,d,0])
+                    minF = fc_snr[d]*np.min(noise_avg[:,d,0])
+                    flux_int = interpol(snr_target, snr_basis[n,d,:], all_fluxes[d,:])
+                    if flux_int < minF and flux_int > maxF:
+                        flux_wanted[n,d] = flux_int
+                    elif snr_target > snrmax:
+                        flux_wanted[n,d] = all_fluxes[d, np.argmax(snr_basis[n,d,:])]
+                    elif snr_target < snrmin:
+                        flux_wanted[n,d] = all_fluxes[d, np.argmin(snr_basis[n,d,:])]
         
-        nbr_neg = np.sum((flux_wanted[:,d]<0))
-        if nbr_neg > 1:
-            raise ValueError('Unable to properly estimate the optimal flux')
-        elif nbr_neg == 1:
-            ind = np.where(flux_wanted[:,d] < 0)[0]
-            if ind == 0:
-                flux_wanted[ind,d] = flux_wanted[ind+1,d]
-            elif ind == nbr_dist:
-                flux_wanted[ind,d] = flux_wanted[ind-1,d]
-            else:
-                flux_wanted[ind,d] = (flux_wanted[ind+1,d] + flux_wanted[ind-1,d])/2
+            nbr_neg = np.sum((flux_wanted[:,d]<0))
+            if nbr_neg > 1:
+                raise ValueError('Unable to properly estimate the optimal flux')
+            elif nbr_neg == 1:
+                ind = np.where(flux_wanted[:,d] < 0)[0]
+                if ind == 0:
+                    flux_wanted[ind,d] = flux_wanted[ind+1,d]
+                elif ind == nbr_dist:
+                    flux_wanted[ind,d] = flux_wanted[ind-1,d]
+                else:
+                    flux_wanted[ind,d] = (flux_wanted[ind+1,d] + flux_wanted[ind-1,d])/2
                 
-        for k,n in enumerate(ncomp):
-            this_curve = thruput_per[k,d,:]
+            for k,n in enumerate(ncomp):
+                this_curve = thruput_per[k,d,:]
             
-            corrected_thru = interpol(flux_wanted[k,d], 
+                corrected_thru = interpol(flux_wanted[k,d], 
                                       all_fluxes[d,:], this_curve)
             
-            if corrected_thru < 0 or corrected_thru > 1:
-                corrected_thru = 1e-4
-            thru_cont_basis[k,d,0] = corrected_thru
+                if corrected_thru < 0 or corrected_thru > 1:
+                    corrected_thru = 1e-4
+                thru_cont_basis[k,d,0] = corrected_thru
+    else:
+        flux_wanted = flux
             
     print(flux_wanted)
     
-    if isinstance(starphot, float) or isinstance(starphot, int):
-        thru_cont_basis[:,:,1] = (
-            (sigma * noise_avg[:,:,0]) / thru_cont_basis[:,:,0]
-        ) / starphot
-    else:
-        thru_cont_basis[:,:,1] = (
-            (sigma * noise_avg[:,:,0]) / thru_cont_basis[:,:,0]
-        ) / np.median(starphot)
-    if 'multi_epoch' not in algo_name:
-        thru_cont_basis[:,:,2] = ncomp.reshape(ncomp.shape[0],1)
+    if len(per_values) != 0:
+        if isinstance(starphot, float) or isinstance(starphot, int):
+            thru_cont_basis[:,:,1] = (
+                (sigma * noise_avg[:,:,0]) / thru_cont_basis[:,:,0]
+            ) / starphot
+        else:
+            thru_cont_basis[:,:,1] = (
+                (sigma * noise_avg[:,:,0]) / thru_cont_basis[:,:,0]
+            ) / np.median(starphot)
+        if 'multi_epoch' not in algo_name:
+            thru_cont_basis[:,:,2] = ncomp.reshape(ncomp.shape[0],1)
     
     
-    for d in range(nbr_dist):
-        thru_cont_basis[np.where(thru_cont_basis[:,d,0] == 1e-4),d,1] = 1
-    print(thru_cont_basis)
-    
-    
-    if through_thresh != 'auto':
-        if np.isscalar(through_thresh):
-            through_thresh = [through_thresh]*nbr_dist
         for d in range(nbr_dist):
-            if np.sum((thru_cont_basis[:,d,0]>through_thresh[d])) == 0:
-                print('through_thresh should be at most {}'.format(np.max(thru_cont_basis[:,d,0])))
-                raise ValueError('through_thresh is too high')
+            thru_cont_basis[np.where(thru_cont_basis[:,d,0] == 1e-4),d,1] = 1
+        print(thru_cont_basis)
+    
+    
+        if through_thresh != 'auto':
+            if np.isscalar(through_thresh):
+                through_thresh = [through_thresh]*nbr_dist
+            for d in range(nbr_dist):
+                if np.sum((thru_cont_basis[:,d,0]>through_thresh[d])) == 0:
+                    print('through_thresh should be at most {}'.format(np.max(thru_cont_basis[:,d,0])))
+                    raise ValueError('through_thresh is too high')
         
-    Optimal_comp_basis = []
-    Optimal_comp_basis_ind = []
-    if through_thresh != 'auto':
-        for d in range(nbr_dist):
-            #pose limit on threshold if it increases with comp...
-            sorted_ind = np.argsort(thru_cont_basis[:,d,1])
-            for Ind in sorted_ind:
-                if thru_cont_basis[Ind,d,0] < through_thresh[d]:
-                    continue
+        Optimal_comp_basis = []
+        Optimal_comp_basis_ind = []
+        if through_thresh != 'auto':
+            for d in range(nbr_dist):
+                #pose limit on threshold if it increases with comp...
+                sorted_ind = np.argsort(thru_cont_basis[:,d,1])
+                for Ind in sorted_ind:
+                    if thru_cont_basis[Ind,d,0] < through_thresh[d]:
+                        continue
+                    Optimal_comp_basis.append(ncomp[Ind])
+                    Optimal_comp_basis_ind.append(Ind)
+                    break
+        else:
+            for d in range(nbr_dist):
+                Ind = np.argmin(thru_cont_basis[:, d, 1])
                 Optimal_comp_basis.append(ncomp[Ind])
                 Optimal_comp_basis_ind.append(Ind)
-                break
     else:
+        Optimal_comp_basis_ind = []
+        Optimal_comp_basis = opt_ncomp
         for d in range(nbr_dist):
-            Optimal_comp_basis.append(ncomp[np.argmin(thru_cont_basis[:, d, 1])])
-            Optimal_comp_basis_ind.append(Ind)
+            Optimal_comp_basis_ind.append(int(np.where(np.array(ncomp) == opt_ncomp[d])[0]))
+        if through_thresh != 'auto':
+            if np.isscalar(through_thresh):
+                through_thresh = [through_thresh]*nbr_dist
             
     Optimal_comp_basis = np.array(Optimal_comp_basis)
     print(Optimal_comp_basis)
-    Optimal_comp_basis_ind = np.array(Optimal_comp_basis_ind)
+    Optimal_comp_basis_ind = np.array(Optimal_comp_basis_ind, dtype = int)
+    print(Optimal_comp_basis_ind)
     
-    flux_wanted = [flux_wanted[Optimal_comp_basis_ind[d],d] for d in range(0, nbr_dist)]
+    flux_wanted = np.array(flux_wanted)
+    if len(per_values) != 0:
+        flux_wanted = [flux_wanted[Optimal_comp_basis_ind[d],d] for d in range(0, nbr_dist)]
+
     print(flux_wanted)
     
     ########################################################################
@@ -4687,7 +4709,8 @@ def contrast_multi_epoch_walk3(
                 break
     else:
         for d in range(nbr_dist):
-            Optimal_comp_basis.append(ncomp[np.argmin(new_thru_cont_basis[:, d, 1])])
+            Ind = np.argmin(new_thru_cont_basis[:, d, 1])
+            Optimal_comp_basis.append(ncomp[Ind])
             Optimal_comp_basis_ind.append(Ind)
     
     Optimal_comp = np.zeros((nbr_epochs, nbr_dist), dtype = int)
@@ -4787,6 +4810,9 @@ def contrast_multi_epoch_walk3(
         no_found = np.zeros(nbr_dist)
         for N in range(nbr_epochs):
             
+            if verbose:
+                print("Processing epoch {}".format(N+1))
+            
             for d in range(nbr_dist):
                 if d in Done:
                     continue
@@ -4815,7 +4841,6 @@ def contrast_multi_epoch_walk3(
                     
                     this_noise, this_mean = noise_dist(this_frame, rad_dist[d], fwhm_med, wedge, 
                                         False, debug)[0]
-                    print(this_noise, this_mean)
                 
                     this_thruput = np.zeros(nbranch)
                     this_flux = np.array([apertureOne_flux(
@@ -4841,22 +4866,22 @@ def contrast_multi_epoch_walk3(
                     #Correction on thruput done here
                     #thruput_per = np.zeros((nnpcs, nbr_dist, len(per_values)))
                     #avg_comp = np.mean(these_comp)
-                    avg_comp = np.average(these_comp, weights = frames_per_epoch)
-                    for k, n in enumerate(ncomp):
-                        if n >= avg_comp:
-                            n_index = k-1
-                            break
-                    if avg_comp == np.min(ncomp):
-                        n_index = 0
-                    curves = thruput_per[n_index:n_index+2,d,:]
-                    this_curve = np.zeros((nbr_per))
-                    for p in range(0, nbr_per):
-                        this_curve[p] = interpol(avg_comp, 
-                            [ncomp[n_index], ncomp[n_index+1]], curves[:,p])
-                    corrected_thru = interpol(fc_snr[d]*this_noise, 
-                            all_fluxes[d,:], this_curve)
+                    # avg_comp = np.average(these_comp, weights = frames_per_epoch)
+                    # for k, n in enumerate(ncomp):
+                    #     if n >= avg_comp:
+                    #         n_index = k-1
+                    #         break
+                    # if avg_comp == np.min(ncomp):
+                    #     n_index = 0
+                    # curves = thruput_per[n_index:n_index+2,d,:]
+                    # this_curve = np.zeros((nbr_per))
+                    # for p in range(0, nbr_per):
+                    #     this_curve[p] = interpol(avg_comp, 
+                    #         [ncomp[n_index], ncomp[n_index+1]], curves[:,p])
+                    # corrected_thru = interpol(fc_snr[d]*this_noise, 
+                    #         all_fluxes[d,:], this_curve)
                     
-                    print(this_avg_thruput, corrected_thru)
+                    # print(this_avg_thruput, corrected_thru)
                     
                     #this_avg_thruput = corrected_thru
                     if this_avg_thruput < through_thresh[d]:
@@ -4876,8 +4901,8 @@ def contrast_multi_epoch_walk3(
                     
                     contrasts[i,0] = this_avg_thruput
                     contrasts[i,1] = this_contrast
-                    print(these_comp)
-                    print(contrasts[i,:])
+                    #print(these_comp)
+                    #print(contrasts[i,:])
                 #print(contrasts)
                 #if np.sum(contrasts == 1) == nnpcs:
                 #    continue
