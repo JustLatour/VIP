@@ -3864,7 +3864,7 @@ def contrast_multi_epoch_walk3(
             raise ValueError("distance parameter must be a float, a list or equal to 'auto'")
             
     SizeImage = int(cube[0].shape[1])
-    NbrImages = int(cube.shape[0])
+    NbrImages = int(epoch_indices[-1]-epoch_indices[0])
     
     frames_basis_fc = np.zeros((nnpcs, nbranch, SizeImage, SizeImage), dtype = float)
     frames_basis_no_fc = np.zeros((nnpcs, SizeImage, SizeImage), dtype = float)
