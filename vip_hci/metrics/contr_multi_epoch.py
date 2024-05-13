@@ -4850,7 +4850,7 @@ def contrast_multi_epoch_walk3(
                 
             for d in range(nbr_dist):
                 Ind = np.argmin(contrast_values[d,:,1])
-                Optimal_comp[N] = ncomp[Ind]
+                Optimal_comp[N,d] = ncomp[Ind]
         
         return (Optimal_comp, Optimal_comp_basis)
     
