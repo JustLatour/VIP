@@ -4979,7 +4979,7 @@ def contrast_multi_epoch_walk3(
                         Contrast_progress[d].append(Improvements[N,d,1])
                         if through_up:
                             through_thresh[d] = Improvements[N,d,2]
-                        I+=1
+                        #I+=1
                     else:
                         no_found[d] +=1
         
@@ -5004,8 +5004,9 @@ def contrast_multi_epoch_walk3(
                 if through_up:
                     through_thresh[d] = Improvements[Best_N,d,2]
                 #print(through_thresh)
-                I+=1
-                
+                #I+=1
+            
+        I+=1
         #print(Optimal_comp)
         if len(Done) == nbr_dist:
             print('Done after {}'.format(I))
