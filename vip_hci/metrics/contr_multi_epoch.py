@@ -1750,7 +1750,24 @@ def contrast_step_dist(
     if 'multi_epoch' not in algo_name and not isinstance(ncomp, tuple) and ncomp.shape[0] != 1:
         thru_cont_avg[:,:,2] = ncomp.reshape(ncomp.shape[0],1)
         
-    return (thru_cont_avg, rad_dist)
+        
+    if student:
+        n_res_els = np.floor(rad_dist / fwhm_med * 2 * np.pi)
+        ss_corr = np.sqrt(1 + 1 / n_res_els)
+        sigma_corr = stats.t.ppf(stats.norm.cdf(sigma), n_res_els - 1) * ss_corr
+        if isinstance(starphot, float) or isinstance(starphot, int):
+            Student_res = (
+                (sigma_corr * noise_avg[:,:,0]) / thru_cont_avg[:,:,0]
+            ) / starphot
+        else:
+            Student_res = (
+                (sigma_corr * noise_avg[:,:,0]) / thru_cont_avg[:,:,0]
+            ) / np.median(starphot)
+        Student_res[np.where(Student_res < 0)] = 1
+        Student_res[np.where(Student_res > 1)] = 1
+        return (thru_cont_avg, Student_res, rad_dist)
+    else:
+        return (thru_cont_avg, rad_dist)
 
 
 
