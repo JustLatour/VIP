@@ -3635,7 +3635,7 @@ def contrast_multi_epoch_walk3(
     noise_sep=1,
     wedge=(0, 360),
     fc_snr=50,
-    snr_target=8,
+    snr_target=[5,10],
     per_values = [70, 10],
     flux = None,
     opt_ncomp = None,
@@ -4443,23 +4443,27 @@ def contrast_multi_epoch_walk3(
     #snr_basis (nnpcs, nbr_dist, per)
     
     flux_wanted = np.zeros((nnpcs, nbr_dist))
+    snr_goal = (snr_target[1]+snr_target[0])/2
     if len(per_values) != 0:
         for d in range(nbr_dist):
             for n in range(nnpcs):
                 snrmax = np.max(snr_basis[n,d,:])
                 snrmin = np.min(snr_basis[n,d,:])
-                if snr_target < snrmax and snr_target > snrmin:
-                    flux_wanted[n,d] = interpol(snr_target, snr_basis[n,d,:], all_fluxes[d,:])
+                correct_flux = ((snr_basis[n,d,:] >= snr_target[0]) & (snr_basis[n,d,0] <= snr_target[1])) 
+                print(correct_flux)
+                if np.sum(correct_flux) != 0:
+                    ind_f = np.argmin(snr_basis[n,d,:]-snr_goal)
+                    flux_wanted[n,d] = all_fluxes[d,ind_f]
                 else:
-                    maxF = fc_snr[d]*np.max(noise_avg[:,d,0])
-                    minF = fc_snr[d]*np.min(noise_avg[:,d,0])
-                    flux_int = interpol(snr_target, snr_basis[n,d,:], all_fluxes[d,:])
-                    if flux_int < minF and flux_int > maxF:
+                    maxF = fc_snr[d]*np.max(noise_avg[:,d,0]) * 1
+                    minF = fc_snr[d]*np.min(noise_avg[:,d,0]) / 1
+                    flux_int = interpol(snr_goal, snr_basis[n,d,:], all_fluxes[d,:])
+                    if flux_int <= minF and flux_int >= maxF:
                         flux_wanted[n,d] = flux_int
-                    elif snr_target > snrmax:
-                        flux_wanted[n,d] = all_fluxes[d, np.argmax(snr_basis[n,d,:])]
-                    elif snr_target < snrmin:
-                        flux_wanted[n,d] = all_fluxes[d, np.argmin(snr_basis[n,d,:])]
+                    elif snr_target[0] > snrmax:
+                        flux_wanted[n,d] = maxF
+                    elif snr_target[1] < snrmin:
+                        flux_wanted[n,d] = minF
         
             nbr_neg = np.sum((flux_wanted[:,d]<0))
             if nbr_neg > 1:
