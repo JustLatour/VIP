@@ -4289,7 +4289,7 @@ def contrast_multi_epoch_walk3(
     all_injected_flux = np.zeros((nbr_dist, nbranch))
     
     if np.isscalar(fc_snr):
-        fc_snr = np.array([fc_snr])
+        fc_snr = np.array([fc_snr] * nbr_dist)
     elif isinstance(fc_snr, tuple):
         fc_snr = np.linspace(fc_snr[0], fc_snr[1], nbr_dist)
     
@@ -4737,8 +4737,10 @@ def contrast_multi_epoch_walk3(
         Optimal_comp[i,:] = Optimal_comp_basis.copy()
         
     Contrast_progress = []
+    last_thruput = []
     for d in range(nbr_dist):
         Contrast_progress.append([np.min(new_thru_cont_basis[:, d, 1])])
+        last_thruput.append(new_thru_cont_basis[np.argmin(new_thru_cont_basis[:, d, 1]),d,0])
         
     if approximation == -1:
         Ncombinations = nnpcs**nbr_epochs
@@ -4807,6 +4809,7 @@ def contrast_multi_epoch_walk3(
                 
                 if this_contrast[d,1] < Contrast_progress[d][-1]:
                     Contrast_progress[d].append(this_contrast[d,1])
+                    last_thruput[d] = this_contrast[d,0]
                     All_Optimal_Comp[d,:] = these_comp
                     
             if np.sum(this_contrast[:,0]<through_thresh) == nbr_dist:
@@ -4818,8 +4821,45 @@ def contrast_multi_epoch_walk3(
             
             indices_comp, index = NextComb(indices_comp, nnpcs, nbr_epochs)
             I+=1
+            
+        BestFrames = np.zeros((nbr_dist, cube.shape[2], cube.shape[2]))
+        for d in range(nbr_dist):
+            for Nbis in range(nbr_epochs):
+                this_comp = int(np.where(ncomp == Optimal_comp[Nbis,d])[0])
+                res_cube_a[indices_epochs[Nbis*2]:
+                           indices_epochs[(Nbis*2)+1],:,:] = res_cube_no_fc[
+                              this_comp,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+            BestFrames[d] = np.median(res_cube_a, axis = 0)
         
-        return Contrast_progress, All_Optimal_Comp
+        best_noise_mean = np.array([noise_dist(BestFrames[d], rad_dist[d], fwhm_med, wedge, 
+                            False, debug) for d in range(nbr_dist)])
+        
+        best_noise = best_noise_mean[:,:,0]
+        
+        LastResult = np.zeros((nbr_dist,3))
+        LastResult[:,0] = last_thruput 
+        for d in range(0, nbr_dist):
+            LastResult[d,1] = Contrast_progress[d][-1]
+            
+        if student:
+            Student_res = np.zeros(nbr_dist)
+            n_res_els = np.floor(rad_dist / fwhm_med * 2 * np.pi)
+            ss_corr = np.sqrt(1 + 1 / n_res_els)
+            sigma_corr = stats.t.ppf(stats.norm.cdf(sigma), n_res_els - 1) * ss_corr
+            for d in range(nbr_dist):
+                if isinstance(starphot, float) or isinstance(starphot, int):
+                    Student_res[d] = (
+                        (sigma_corr[d] * best_noise[d]) / last_thruput[d]
+                    ) / starphot
+                else:
+                    Student_res[d] = (
+                        (sigma_corr[d] *best_noise[d]) / last_thruput[d]
+                    ) / np.median(starphot)
+            Student_res[np.where(Student_res < 0)] = 1
+            Student_res[np.where(Student_res > 1)] = 1
+            LastResult[:,2] = Student_res
+        
+        return Contrast_progress, All_Optimal_Comp, LastResult
         
     elif approximation == 5:
         for N in range(nbr_epochs):
@@ -4866,9 +4906,47 @@ def contrast_multi_epoch_walk3(
                 
             for d in range(nbr_dist):
                 Ind = np.argmin(contrast_values[d,:,1])
+                last_thruput[d] = contrast_values[d,Ind,0]
                 Optimal_comp[N,d] = ncomp[Ind]
         
-        return (Optimal_comp, Optimal_comp_basis)
+        BestFrames = np.zeros((nbr_dist, cube.shape[2], cube.shape[2]))
+        for d in range(nbr_dist):
+            for Nbis in range(nbr_epochs):
+                this_comp = int(np.where(ncomp == Optimal_comp[Nbis,d])[0])
+                res_cube_a[indices_epochs[Nbis*2]:
+                           indices_epochs[(Nbis*2)+1],:,:] = res_cube_no_fc[
+                              this_comp,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+            BestFrames[d] = np.median(res_cube_a, axis = 0)
+        
+        best_noise_mean = np.array([noise_dist(BestFrames[d], rad_dist[d], fwhm_med, wedge, 
+                            False, debug) for d in range(nbr_dist)])
+        
+        best_noise = best_noise_mean[:,:,0]
+        
+        LastResult = np.zeros((nbr_dist,3))
+        LastResult[:,0] = last_thruput 
+        for d in range(0, nbr_dist):
+            LastResult[d,1] = Contrast_progress[d][-1]
+            
+        if student:
+            Student_res = np.zeros(nbr_dist)
+            n_res_els = np.floor(rad_dist / fwhm_med * 2 * np.pi)
+            ss_corr = np.sqrt(1 + 1 / n_res_els)
+            sigma_corr = stats.t.ppf(stats.norm.cdf(sigma), n_res_els - 1) * ss_corr
+            for d in range(nbr_dist):
+                if isinstance(starphot, float) or isinstance(starphot, int):
+                    Student_res[d] = (
+                        (sigma_corr[d] * best_noise[d]) / last_thruput[d]
+                    ) / starphot
+                else:
+                    Student_res[d] = (
+                        (sigma_corr[d] *best_noise[d]) / last_thruput[d]
+                    ) / np.median(starphot)
+            Student_res[np.where(Student_res < 0)] = 1
+            Student_res[np.where(Student_res > 1)] = 1
+            LastResult[:,2] = Student_res
+        
+        return Contrast_progress, All_Optimal_Comp, LastResult
     
     
     Done = []
@@ -4993,6 +5071,7 @@ def contrast_multi_epoch_walk3(
                     if Improvements[N,d,1] < Contrast_progress[d][-1]:
                         Optimal_comp[N,d] = Improvements[N,d,0]
                         Contrast_progress[d].append(Improvements[N,d,1])
+                        last_thruput[d] = Improvements[N,d,2]
                         if through_up:
                             through_thresh[d] = Improvements[N,d,2]
                         #I+=1
@@ -5017,6 +5096,7 @@ def contrast_multi_epoch_walk3(
                 Best_N = np.argmin(Improvements[:,d,1])
                 Optimal_comp[Best_N,d] = Improvements[Best_N,d,0]
                 Contrast_progress[d].append(Best_C)
+                last_thruput[d] = Improvements[Best_N,d,2]
                 if through_up:
                     through_thresh[d] = Improvements[Best_N,d,2]
                 #print(through_thresh)
@@ -5027,9 +5107,46 @@ def contrast_multi_epoch_walk3(
         if len(Done) == nbr_dist:
             print('Done after {}'.format(I))
             break
+        
+    BestFrames = np.zeros((nbr_dist, cube.shape[2], cube.shape[2]))
+    for d in range(nbr_dist):
+        for Nbis in range(nbr_epochs):
+            this_comp = int(np.where(ncomp == Optimal_comp[Nbis,d])[0])
+            res_cube_a[indices_epochs[Nbis*2]:
+                       indices_epochs[(Nbis*2)+1],:,:] = res_cube_no_fc[
+                          this_comp,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+        BestFrames[d] = np.median(res_cube_a, axis = 0)
     
-    print(through_thresh)
-    return Optimal_comp, Optimal_comp_basis, Contrast_progress, flux_wanted
+    best_noise_mean = np.array([noise_dist(BestFrames[d], rad_dist[d], fwhm_med, wedge, 
+                        False, debug) for d in range(nbr_dist)])
+    
+    best_noise = best_noise_mean[:,:,0]
+    
+    LastResult = np.zeros((nbr_dist,3))
+    LastResult[:,0] = last_thruput 
+    for d in range(0, nbr_dist):
+        LastResult[d,1] = Contrast_progress[d][-1]
+        
+    if student:
+        Student_res = np.zeros(nbr_dist)
+        n_res_els = np.floor(rad_dist / fwhm_med * 2 * np.pi)
+        ss_corr = np.sqrt(1 + 1 / n_res_els)
+        sigma_corr = stats.t.ppf(stats.norm.cdf(sigma), n_res_els - 1) * ss_corr
+        for d in range(nbr_dist):
+            if isinstance(starphot, float) or isinstance(starphot, int):
+                Student_res[d] = (
+                    (sigma_corr[d] * best_noise[d]) / last_thruput[d]
+                ) / starphot
+            else:
+                Student_res[d] = (
+                    (sigma_corr[d] *best_noise[d]) / last_thruput[d]
+                ) / np.median(starphot)
+        Student_res[np.where(Student_res < 0)] = 1
+        Student_res[np.where(Student_res > 1)] = 1
+        LastResult[:,2] = Student_res
+    
+    
+    return Optimal_comp, Optimal_comp_basis, Contrast_progress, flux_wanted, LastResult
 
 
 
