@@ -3869,16 +3869,18 @@ def contrast_multi_epoch_walk3(
         NRefT = algo_dict['cube_ref'].shape[0]
     
     if 'annular' in algo_name:
-        if distance == 'auto':
+        if isinstance(distance, float):
+            distance = np.array([distance])
+        elif isinstance(distance, list):
+            distance = np.array(distance)
+        elif (distance == 'auto').all():
             radius_int = algo_dict['radius_int']
             asize = algo_dict['asize']
             y = cube.shape[2]
             n_annuli = int((y / 2 - radius_int) / asize)
             distance = np.array([radius_int+(asize/2) + i*asize for i in range(0, n_annuli)])/fwhm_med
-        elif isinstance(distance, float):
-            distance = np.array([distance])
-        elif isinstance(distance, list):
-            distance = np.array(distance)
+        elif isinstance(distance, np.ndarray):
+            pass
         else:
             raise ValueError("distance parameter must be a float, a list or equal to 'auto'")
             
