@@ -3911,6 +3911,9 @@ def contrast_multi_epoch_walk3(
 
     indices_epochs = np.zeros(nbr_epochs*2, dtype = int)
     
+    if np.isscalar(through_thresh):
+        through_thresh = np.array([through_thresh]*nbr_dist)
+    
     previous_e = 0
     for n in range(nbr_epochs):
         indices_epochs[n*2:(n*2)+2] = (previous_e, previous_e + step_walk[n])
@@ -4449,16 +4452,22 @@ def contrast_multi_epoch_walk3(
             for n in range(nnpcs):
                 snrmax = np.max(snr_basis[n,d,:])
                 snrmin = np.min(snr_basis[n,d,:])
-                correct_flux = ((snr_basis[n,d,:] >= snr_target[0]) & (snr_basis[n,d,0] <= snr_target[1])) 
+                correct_flux = ((snr_basis[n,d,:] >= snr_target[0]) & (snr_basis[n,d,:] <= snr_target[1])) 
                 print(correct_flux)
                 if np.sum(correct_flux) != 0:
                     ind_f = np.argmin(snr_basis[n,d,:]-snr_goal)
                     flux_wanted[n,d] = all_fluxes[d,ind_f]
+                    maxF = np.max(all_fluxes[d,:])
+                    minF = np.min(all_fluxes[d,:])
+                    flux_int = interpol(snr_goal, snr_basis[n,d,:], all_fluxes[d,:])
+                    if flux_int >= minF and flux_int <= maxF:
+                        flux_wanted[n,d] = flux_int
+                    
                 else:
                     maxF = fc_snr[d]*np.max(noise_avg[:,d,0]) * 1
                     minF = fc_snr[d]*np.min(noise_avg[:,d,0]) / 1
                     flux_int = interpol(snr_goal, snr_basis[n,d,:], all_fluxes[d,:])
-                    if flux_int <= minF and flux_int >= maxF:
+                    if flux_int >= minF and flux_int <= maxF:
                         flux_wanted[n,d] = flux_int
                     elif snr_target[0] > snrmax:
                         flux_wanted[n,d] = maxF
