@@ -3843,10 +3843,11 @@ def contrast_multi_epoch_walk3(
     idx = algo.__module__.index('.', algo.__module__.index('.') + 1)
     mod = algo.__module__[:idx]
     tmp = __import__(mod, fromlist=[algo_name.upper()+'_Params'])    
-    algo_params = getattr(tmp, algo_name.upper()+'_Params')
+    #algo_params = getattr(tmp, algo_name.upper()+'_Params')
     
     algo_supported = ['pca_annular', 'pca_annular_corr', 
-                      'pca_annular_multi_epoch', 'pca_annular_corr_multi_epoch']
+                      'pca_annular_multi_epoch', 'pca_annular_corr_multi_epoch',
+                      'pca_annular_mask', 'pca_annular_masked']
     if algo_name not in algo_supported:
         raise ValueError("Algorithm is not supported")
     
@@ -3885,7 +3886,11 @@ def contrast_multi_epoch_walk3(
             raise ValueError("distance parameter must be a float, a list or equal to 'auto'")
             
     SizeImage = int(cube[0].shape[1])
-    NbrImages = int(epoch_indices[-1]-epoch_indices[0])
+    
+    if epoch_indices is not None:
+        NbrImages = int(epoch_indices[-1]-epoch_indices[0])
+    else:
+        NbrImages = int(cube.shape[0])
     
     frames_basis_fc = np.zeros((nnpcs, nbranch, SizeImage, SizeImage), dtype = float)
     frames_basis_no_fc = np.zeros((nnpcs, SizeImage, SizeImage), dtype = float)
@@ -3918,12 +3923,15 @@ def contrast_multi_epoch_walk3(
         indices_epochs[n*2:(n*2)+2] = (previous_e, previous_e + step_walk[n])
         previous_e += step_walk[n]
     
-    epoch_saved = np.copy(epoch_indices)
+    if epoch_indices is not None:
+        epoch_saved = np.copy(epoch_indices)
+    else:
+        epoch_saved = None
         
     for N in range(nbr_cubes):
         algo_dict = algo_dict_copy.copy()
         
-        if len(epoch_indices) == 2 and nbr_cubes > 1:
+        if epoch_indices is not None and len(epoch_indices) == 2 and nbr_cubes > 1:
             algo_dict['epoch_indices'] = epoch_indices
             _, res_cube_no_fc, _ = algo(
                 cube=cube, angle_list=angle_list, fwhm=fwhm_med,
@@ -3970,7 +3978,7 @@ def contrast_multi_epoch_walk3(
         else:
             indices_done = np.array(indices_cube_adi)
         
-        if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
+        if 'multi_epoch' not in algo_name:
             _, res_cube_no_fc[:, indices_done[0]:indices_done[1], :, :], _ = algo(
                         cube=cube_adi, angle_list=this_angle_list, fwhm=fwhm_med,
                         verbose=verbose, full_output = True, **algo_dict)
@@ -4365,7 +4373,7 @@ def contrast_multi_epoch_walk3(
             for N in range(nbr_cubes):
                 algo_dict = algo_dict_copy.copy()
                 
-                if len(epoch_saved) == 2:
+                if epoch_saved is not None  and len(epoch_saved) == 2:
                     algo_dict['epoch_indices'] = epoch_saved
                     _, res_cube_fc[:,br,:,:,:], _ = algo(
                         cube=cube_fc, angle_list=angle_list, fwhm=fwhm_med, 
@@ -4407,7 +4415,7 @@ def contrast_multi_epoch_walk3(
                     indices_done = algo_dict['epoch_indices'] + indices_cube_adi[0]
                 else:
                     indices_done = np.array(indices_cube_adi)
-                if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
+                if 'multi_epoch' not in algo_name:
                     _, res_cube_fc[:,br,indices_done[0]:indices_done[1],:,:], _ = algo(
                         cube=cube_fc, angle_list=angle_list, fwhm=fwhm_med, 
                         verbose=verbose, full_output = True, **algo_dict)
@@ -4625,7 +4633,7 @@ def contrast_multi_epoch_walk3(
         for N in range(nbr_cubes):
             algo_dict = algo_dict_copy.copy()
             
-            if len(epoch_saved) == 2:
+            if epoch_indices is not None and len(epoch_saved) == 2:
                 algo_dict['epoch_indices'] = epoch_saved
                 _, res_cube_fc[:,br,:,:,:], _ = algo(
                     cube=cube_fc, angle_list=angle_list, fwhm=fwhm_med, 
@@ -4667,7 +4675,7 @@ def contrast_multi_epoch_walk3(
                 indices_done = algo_dict['epoch_indices'] + indices_cube_adi[0]
             else:
                 indices_done = np.array(indices_cube_adi)
-            if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
+            if 'multi_epoch' not in algo_name:
                 _, res_cube_fc[:,br,indices_done[0]:indices_done[1],:,:], _ = algo(
                     cube=cube_fc, angle_list=angle_list, fwhm=fwhm_med, 
                     verbose=verbose, full_output = True, **algo_dict)
