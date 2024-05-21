@@ -192,12 +192,18 @@ def pca_annular_mask(
         nncomp = len(ncomp)
         cube_out = np.zeros([nncomp, array.shape[0], array.shape[1],
                              array.shape[2]])
+    elif isinstance(ncomp, np.ndarray):
+        #1st dim of ncomp is all the epochs
+        #2nd dim is the ncomp values tested
+        nncomp = ncomp.shape[1]
+        cube_out = np.zeros([nncomp, array.shape[0], array.shape[1],
+                             array.shape[2]])
     elif np.isscalar(ncomp):
         nncomp = 1
         cube_out = np.zeros([1, array.shape[0], array.shape[1],
                              array.shape[2]])
     for ann in range(n_annuli):
-        if isinstance(ncomp, tuple) or isinstance(ncomp, np.ndarray):
+        if isinstance(ncomp, tuple):
             if len(ncomp) == n_annuli:
                 ncompann = ncomp[ann]
             else:
@@ -266,6 +272,9 @@ def pca_annular_mask(
     if verbose:
         print("Done derotating and combining.")
         timing(start_time)
+        
+    if nncomp == 1:
+        result = result[0,:,:]
         
     if full_output:
         return cube_out, cube_der, result
@@ -507,9 +516,13 @@ def pca_ardi_annulus_mask(
     masks_centers = []
     
     nnpcs = ncomp.shape[0]
+    if len(ncomp.shape) == 2:
+        nnpcs = ncomp.shape[1]
     
     results = np.zeros((n_images, nnpcs, cube.shape[1], cube.shape[2]))
     result_noder = np.zeros((nnpcs,n,cube.shape[1],cube.shape[2]))
+    
+    nbr_frames = []
     
     Indices_segments = get_annulus_segments(cube[0], inner_radius, asize, n_segments, theta_init)
     for i, center in enumerate(centers):
@@ -529,7 +542,9 @@ def pca_ardi_annulus_mask(
             
             #boat_k = np.ones_like(cube[0])
             
-            adi_indices = _find_indices_adi2(angle_list, k, pa_thr)
+            adi_indices = _find_indices_adi2(angle_list, k, pa_thr,
+                                             truncate=True,
+                                             max_frames=max_frames_lib)
             adi_indices = np.sort(adi_indices)
             
             frame_boat = cube[k] * boat_k
@@ -539,6 +554,10 @@ def pca_ardi_annulus_mask(
                                                 verbose=False)
             
             cube_used = cube[adi_indices]
+            if cube_ref is not None:
+                cube_used = np.vstack((cube_used, cube_ref))
+                
+            nbr_frames.append(cube_used.shape[0])
             
             cube_anchor = cube_used * anchor_k
             cube_anchor_l = prepare_matrix(cube_anchor, scaling=None, verbose=False)
@@ -576,11 +595,18 @@ def pca_ardi_annulus_mask(
             #print(transf_sci_scaled)
         
             tmp_sky = np.zeros_like(cube[0])
-            for n in range(np.max(ncomp)):
-                tmp_sky += np.array([transf_sci_scaled[n]*sky_pcs_boat_cube[n]]).reshape(cube.shape[1], cube.shape[2])
-                if n+1 in ncomp:
-                    index = np.where(ncomp == n+1)[0][0]
-                    sci_cube_skysub[index,k] = frame_boat - tmp_sky
+            if len(ncomp.shape) == 2:
+                for n in range(np.max(ncomp[k])):
+                    tmp_sky += np.array([transf_sci_scaled[n]*sky_pcs_boat_cube[n]]).reshape(cube.shape[1], cube.shape[2])
+                    if n+1 in ncomp[k]:
+                        index = np.where(ncomp[k] == n+1)[0][0]
+                        sci_cube_skysub[index,k] = frame_boat - tmp_sky
+            else:
+                for n in range(np.max(ncomp)):
+                    tmp_sky += np.array([transf_sci_scaled[n]*sky_pcs_boat_cube[n]]).reshape(cube.shape[1], cube.shape[2])
+                    if n+1 in ncomp:
+                        index = np.where(ncomp == n+1)[0][0]
+                        sci_cube_skysub[index,k] = frame_boat - tmp_sky
                    
             result_noder[:,k,:,:] += sci_cube_skysub[:,k] * boat_k
             
@@ -604,6 +630,9 @@ def pca_ardi_annulus_mask(
         
         
     results = np.sum(results, axis = 0)
+    
+    if verbose:
+        print(np.mean(nbr_frames))
 
     if len(ncomp) == 1:
         results = results[0,:,:]
@@ -708,8 +737,6 @@ def pca_ardi_annulus_masked(
         boat = np.zeros_like(cube[0])
         boat[Indices_segments[i][0], Indices_segments[i][1]] = 1
         
-        plot_frames(boat)
-        
         sci_cube_skysub = np.zeros((nnpcs, cube.shape[0], cube.shape[1], cube.shape[2]))
         
         position = center + para_range/2 - angle_list[-1]
@@ -718,12 +745,10 @@ def pca_ardi_annulus_masked(
             anchor_k = np.ones_like(cube[0]) - boat_k
         elif mask_rdi == 'annulus':
             anchor_k = mask_annulus - boat_k
-            
-        plot_frames(anchor_k)
         
         #boat_k = np.ones_like(cube[0])
         
-        if pa_thr == 0:
+        if pa_thr == 0 and 1 == 3:
             cube_anchor = cube * anchor_k
             cube_anchor_l = prepare_matrix(cube_anchor, scaling=None, verbose=False)
             

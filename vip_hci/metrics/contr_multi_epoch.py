@@ -998,6 +998,9 @@ def contrast_step_dist_opt(
     noise_avg = np.array([noise_dist(frames_no_fc[n, :, :], rad_dist, fwhm_med, wedge, 
                         False, debug) for n in range(0, nnpcs)])
     
+    
+    
+    
     for i, NbrSteps in enumerate(TotalSteps):
         noise_tmp = []
         mean_res_tmp = []
@@ -1245,10 +1248,12 @@ def contrast_step_dist_opt(
                 (sigma * final_noise[i,:]) / final_result[i,:,0]
             ) / np.median(starphot)
             
-    
     thruput_avg = np.nanmean(thruput_avg_tmp[:,:,:], axis = 2)
     thru_cont_avg = np.zeros((nnpcs, nbr_dist, 3))
     thru_cont_avg[:,:,0] = thruput_avg
+    
+    print(thruput_avg)
+    print(noise_avg)
     if isinstance(starphot, float) or isinstance(starphot, int):
         thru_cont_avg[:,:,1] = (
             (sigma * noise_avg[:,:,0]) / thru_cont_avg[:,:,0]
@@ -1257,8 +1262,6 @@ def contrast_step_dist_opt(
         thru_cont_avg[:,:,1] = (
             (sigma * noise_avg[:,:,0]) / thru_cont_avg[:,:,0]
         ) / np.median(starphot)
-    if 'multi_epoch' not in algo_name and not isinstance(ncomp, tuple) and ncomp.shape[0] != 1:
-        thru_cont_avg[:,:,2] = ncomp.reshape(ncomp.shape[0])
         
     return (thru_cont_avg, final_result, rad_dist, step, BestComp, final_frame, final_frames_br)
 
@@ -4460,7 +4463,6 @@ def contrast_multi_epoch_walk3(
                 snrmax = np.max(snr_basis[n,d,:])
                 snrmin = np.min(snr_basis[n,d,:])
                 correct_flux = ((snr_basis[n,d,:] >= snr_target[0]) & (snr_basis[n,d,:] <= snr_target[1])) 
-                print(correct_flux)
                 if np.sum(correct_flux) != 0:
                     ind_f = np.argmin(snr_basis[n,d,:]-snr_goal)
                     flux_wanted[n,d] = all_fluxes[d,ind_f]
@@ -4935,6 +4937,7 @@ def contrast_multi_epoch_walk3(
                 res_cube_a[indices_epochs[Nbis*2]:
                            indices_epochs[(Nbis*2)+1],:,:] = res_cube_no_fc[
                               this_comp,indices_epochs[Nbis*2]:indices_epochs[(Nbis*2)+1],:,:]
+                
             BestFrames[d] = np.median(res_cube_a, axis = 0)
         
         best_noise_mean = np.array([noise_dist(BestFrames[d], rad_dist[d], fwhm_med, wedge, 
