@@ -164,7 +164,7 @@ def pca_annular_mask(
     n_annuli = int((y / 2 - radius_int) / asize)
     
     if isinstance(n_segments, list):
-        if len(n_segments != n_annuli):
+        if len(n_segments) != n_annuli:
             raise ValueError('If n_segments is a list, its length must be the same as the number of annuli')
     elif np.isscalar(n_segments):
         n_segments = [n_segments] * n_annuli
@@ -332,7 +332,7 @@ def pca_annular_masked(
     n_annuli = int((y / 2 - radius_int) / asize)
     
     if isinstance(n_segments, list):
-        if len(n_segments != n_annuli):
+        if len(n_segments) != n_annuli:
             raise ValueError('If n_segments is a list, its length must be the same as the number of annuli')
     elif np.isscalar(n_segments):
         n_segments = [n_segments] * n_annuli
@@ -811,7 +811,9 @@ def pca_ardi_annulus_masked(
                         
         else:
             for k in range(cube.shape[0]):
-                adi_indices = _find_indices_adi2(angle_list, k, pa_thr)
+                adi_indices = _find_indices_adi2(angle_list, k, pa_thr,
+                                                 truncate=True,
+                                                 max_frames=max_frames_lib)
                 adi_indices = np.sort(adi_indices)
                 
                 frame_boat = cube[k] * boat_k
@@ -821,6 +823,9 @@ def pca_ardi_annulus_masked(
                                                     verbose=False)
                 
                 cube_used = cube[adi_indices]
+                if cube_ref is not None:
+                    cube_used = np.vstack((cube_used, cube_ref))
+                
                 
                 cube_anchor = cube_used * anchor_k
                 cube_anchor_l = prepare_matrix(cube_anchor, scaling=None, verbose=False)
