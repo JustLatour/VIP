@@ -163,6 +163,12 @@ def pca_annular_mask(
     angle_list = check_pa_vector(angle_list)
     n_annuli = int((y / 2 - radius_int) / asize)
     
+    if isinstance(n_segments, list):
+        if len(n_segments != n_annuli):
+            raise ValueError('If n_segments is a list, its length must be the same as the number of annuli')
+    elif np.isscalar(n_segments):
+        n_segments = [n_segments] * n_annuli
+    
     if isinstance(delta_rot, tuple):
         delta_rot = np.linspace(delta_rot[0], delta_rot[1], num=n_annuli)
     elif np.isscalar(delta_rot):
@@ -233,7 +239,7 @@ def pca_annular_mask(
             inner_radius,
             fwhm,
             asize,
-            n_segments,
+            n_segments[ann],
             mask_rdi,
             pa_thr,
             ncompann,
@@ -325,6 +331,12 @@ def pca_annular_masked(
     angle_list = check_pa_vector(angle_list)
     n_annuli = int((y / 2 - radius_int) / asize)
     
+    if isinstance(n_segments, list):
+        if len(n_segments != n_annuli):
+            raise ValueError('If n_segments is a list, its length must be the same as the number of annuli')
+    elif np.isscalar(n_segments):
+        n_segments = [n_segments] * n_annuli
+    
     if isinstance(delta_rot, tuple):
         delta_rot = np.linspace(delta_rot[0], delta_rot[1], num=n_annuli)
     elif np.isscalar(delta_rot):
@@ -389,7 +401,7 @@ def pca_annular_masked(
             inner_radius,
             fwhm,
             asize,
-            n_segments,
+            n_segments[ann],
             mask_rdi,
             pa_thr,
             ncompann,
