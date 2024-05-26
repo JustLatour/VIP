@@ -1737,7 +1737,6 @@ def contrast_step_dist(
             for d in range(0, nbr_dist):
                 thruput[n,d,br] = recovered_flux[n,d,br]/injected_flux[d]
             thruput[np.where(thruput < 0)] = 0
-
             
     thruput = np.nanmean(thruput[:,:,:], axis = 2)
     thru_cont_avg = np.zeros((nnpcs, nbr_dist, 3))
@@ -1752,6 +1751,11 @@ def contrast_step_dist(
         ) / np.median(starphot)
     if 'multi_epoch' not in algo_name and not isinstance(ncomp, tuple) and ncomp.shape[0] != 1:
         thru_cont_avg[:,:,2] = ncomp.reshape(ncomp.shape[0],1)
+        
+    print(noise_avg)
+    print(nnpcs)
+    print(thru_cont_avg[:,:,0])
+    print(starphot)
         
         
     if student:
@@ -4930,6 +4934,7 @@ def contrast_multi_epoch_walk3(
                 last_thruput[d] = contrast_values[d,Ind,0]
                 Optimal_comp[N,d] = ncomp[Ind]
         
+        res_cube_a = np.zeros_like(cube)
         BestFrames = np.zeros((nbr_dist, cube.shape[2], cube.shape[2]))
         for d in range(nbr_dist):
             for Nbis in range(nbr_epochs):
@@ -4945,30 +4950,7 @@ def contrast_multi_epoch_walk3(
         
         best_noise = best_noise_mean[:,:,0]
         
-        LastResult = np.zeros((nbr_dist,3))
-        LastResult[:,0] = last_thruput 
-        for d in range(0, nbr_dist):
-            LastResult[d,1] = Contrast_progress[d][-1]
-            
-        if student:
-            Student_res = np.zeros(nbr_dist)
-            n_res_els = np.floor(rad_dist / fwhm_med * 2 * np.pi)
-            ss_corr = np.sqrt(1 + 1 / n_res_els)
-            sigma_corr = stats.t.ppf(stats.norm.cdf(sigma), n_res_els - 1) * ss_corr
-            for d in range(nbr_dist):
-                if isinstance(starphot, float) or isinstance(starphot, int):
-                    Student_res[d] = (
-                        (sigma_corr[d] * best_noise[d]) / last_thruput[d]
-                    ) / starphot
-                else:
-                    Student_res[d] = (
-                        (sigma_corr[d] *best_noise[d]) / last_thruput[d]
-                    ) / np.median(starphot)
-            Student_res[np.where(Student_res < 0)] = 1
-            Student_res[np.where(Student_res > 1)] = 1
-            LastResult[:,2] = Student_res
-        
-        return Contrast_progress, All_Optimal_Comp, LastResult
+        return Contrast_progress, Optimal_comp
     
     
     Done = []
