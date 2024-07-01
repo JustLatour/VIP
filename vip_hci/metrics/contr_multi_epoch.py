@@ -902,7 +902,7 @@ def contrast_step_dist_opt(
     if algo_name not in algo_supported:
         raise ValueError("Algorithm is not supported")
         
-    SizeImage = int(cube[0].shape[1])
+    SizeImage = int(cube[0].shape[2])
     NbrImages = int(cube.shape[0])
     if algo_name == 'pca_annular_corr':
         epoch_indices =  algo_dict['epoch_indices']
