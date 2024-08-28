@@ -1964,7 +1964,7 @@ def pca_ardi_annulus_mask_edge(
     if verbose:
         print("PCA per annulus (or annular sectors):")
 
-    n, y, x = array.shape
+    ni, y, x = array.shape
 
     angle_list = check_pa_vector(angle_list)
     if np.isscalar(ncomp):
@@ -1979,8 +1979,8 @@ def pca_ardi_annulus_mask_edge(
     
     if theta_init == 'auto':
         theta_init = [0, angular_width/2]
-    if np.isscalar(theta_init):
-        theta_init = np.array(theta_init)
+    elif np.isscalar(theta_init):
+        theta_init = np.array([theta_init])
     
     centers = []
     nbr_offsets = len(theta_init)
@@ -2020,8 +2020,8 @@ def pca_ardi_annulus_mask_edge(
         nnpcs = ncomp.shape[1]
     
     results = np.zeros((nbr_offsets,nnpcs,cube.shape[1],cube.shape[2]))
-    result_noder = np.zeros((nbr_offsets,nnpcs,n,cube.shape[1],cube.shape[2]))
-    cube_der = np.zeros((nbr_offsets,nnpcs,n,cube.shape[1],cube.shape[2]))
+    result_noder = np.zeros((nbr_offsets,nnpcs,ni,cube.shape[1],cube.shape[2]))
+    cube_der = np.zeros((nbr_offsets,nnpcs,ni,cube.shape[1],cube.shape[2]))
     
     nbr_frames = []
     
@@ -2033,7 +2033,7 @@ def pca_ardi_annulus_mask_edge(
         
             #plot_frames(boat)
         
-            sci_cube_skysub = np.zeros((nnpcs, cube.shape[0], cube.shape[1], cube.shape[2]))
+            sci_cube_skysub = np.zeros((nnpcs, ni, y, x))
             for k in range(cube.shape[0]):
                 position = center - angle_list[k]
                 boat_k = mask_local_boat(mask_annulus, position, angular_width)
@@ -2133,8 +2133,15 @@ def pca_ardi_annulus_mask_edge(
     if full_output != -1:
         weights = filled_angular_arrays(cube[0], multiple = 360/n_segments, offset = theta_init)
         final_res = np.zeros((nnpcs, y, x))
-        for n in range(nnpcs):
-            final_res[n]=np.average(results[:,n], axis=0, weights = weights)
+        final_ = np.zeros((nnpcs,ni,y,x))
+        if len(theta_init) > 1:
+            for n in range(nnpcs):
+                final_res[n]=np.average(results[:,n], axis=0, weights = weights)
+                for j in range(ni):
+                    final_[n,j] = np.average(cube_der[:,n,j], axis = 0, weights = weights)
+        else:
+            final_res[:,:,:] = results[0]
+            final_ = cube_der[0,n]
     
     if verbose:
         print(np.mean(nbr_frames))
@@ -2145,7 +2152,7 @@ def pca_ardi_annulus_mask_edge(
     if full_output == -1:
         return result_noder
     elif full_output == True:
-        return result_noder, cube_der, results, final_res
+        return results, final_, final_res
     else:
         return results, final_res
     
@@ -2176,7 +2183,7 @@ def smoothstep(x, edge0, edge1):
     return x * x * (3 - 2 * x)
 
 
-def Quadrant_selection(angle, multiple, smoothing, offset = 'auto'):
+def Quadrant_selection(angle, multiple, smoothing, offset):
     """
     Returns 1 or 0 depending on in which section of the image it is
     

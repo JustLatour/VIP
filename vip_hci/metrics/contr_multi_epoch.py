@@ -895,14 +895,14 @@ def contrast_step_dist_opt(
     idx = algo.__module__.index('.', algo.__module__.index('.') + 1)
     mod = algo.__module__[:idx]
     tmp = __import__(mod, fromlist=[algo_name.upper()+'_Params'])    
-    algo_params = getattr(tmp, algo_name.upper()+'_Params')
+    #algo_params = getattr(tmp, algo_name.upper()+'_Params')
     
     algo_supported = ['pca_annular', 'pca_annular_corr', 
                       'pca_annular_multi_epoch', 'pca_annular_corr_multi_epoch']
     if algo_name not in algo_supported:
         raise ValueError("Algorithm is not supported")
         
-    SizeImage = int(cube[0].shape[2])
+    SizeImage = int(cube.shape[2])
     NbrImages = int(cube.shape[0])
     if algo_name == 'pca_annular_corr':
         epoch_indices =  algo_dict['epoch_indices']
@@ -1061,6 +1061,7 @@ def contrast_step_dist_opt(
         if flux is None:
             flux = fc_snr * np.array([np.percentile(noise_avg[:, d, 0], 20) for d in range(0,nbr_dist)])
         
+        print(flux)
         if matrix_adi_ref is None:
             cube_fc = cube.copy()
         else:
@@ -1263,7 +1264,23 @@ def contrast_step_dist_opt(
             (sigma * noise_avg[:,:,0]) / thru_cont_avg[:,:,0]
         ) / np.median(starphot)
         
-    return (thru_cont_avg, final_result, rad_dist, step, BestComp, final_frame, final_frames_br)
+    if student:
+        n_res_els = np.floor(rad_dist / fwhm_med * 2 * np.pi)
+        ss_corr = np.sqrt(1 + 1 / n_res_els)
+        sigma_corr = stats.t.ppf(stats.norm.cdf(sigma), n_res_els - 1) * ss_corr
+        if isinstance(starphot, float) or isinstance(starphot, int):
+            Student_res = (
+                (sigma_corr * noise_avg[:,:,0]) / thru_cont_avg[:,:,0]
+            ) / starphot
+        else:
+            Student_res = (
+                (sigma_corr * noise_avg[:,:,0]) / thru_cont_avg[:,:,0]
+            ) / np.median(starphot)
+        Student_res[np.where(Student_res < 0)] = 1
+        Student_res[np.where(Student_res > 1)] = 1
+        return (thru_cont_avg, Student_res, final_result, rad_dist, step, BestComp, final_frame, final_frames_br)
+    else:
+        return (thru_cont_avg, final_result, rad_dist, step, BestComp, final_frame, final_frames_br)
 
 
 
@@ -1547,10 +1564,10 @@ def contrast_step_dist(
         ncomp = np.array(ncomp)
             
     algo_name = algo.__name__
-    idx = algo.__module__.index('.', algo.__module__.index('.') + 1)
-    mod = algo.__module__[:idx]
-    tmp = __import__(mod, fromlist=[algo_name.upper()+'_Params'])    
-    algo_params = getattr(tmp, algo_name.upper()+'_Params')
+    #idx = algo.__module__.index('.', algo.__module__.index('.') + 1)
+    #mod = algo.__module__[:idx]
+    #tmp = __import__(mod, fromlist=[algo_name.upper()+'_Params'])    
+    #algo_params = getattr(tmp, algo_name.upper()+'_Params')
     
     algo_supported = ['pca_annular', 'pca_annular_corr', 
                       'pca_annular_multi_epoch', 'pca_annular_corr_multi_epoch']
@@ -1657,7 +1674,8 @@ def contrast_step_dist(
     recovered_flux = np.zeros((nnpcs, nbr_dist, nbranch))
     all_injected_flux = np.zeros((nbr_dist, nbranch))
     
-    
+    saved_flux = flux
+    all_fluxes = np.zeros((nbr_dist, nnpcs))
     for n in range(0, nnpcs):
         for br in range(nbranch):
         
@@ -1669,8 +1687,9 @@ def contrast_step_dist(
             fc_map = np.ones_like(cube[0]) * 1e-6
             fcy = 0
             fcx = 0
-            if flux is None:
+            if saved_flux is None:
                 flux = fc_snr * np.array(noise_avg[n, :, 0])
+                all_fluxes[:,n] = flux
             print(flux)
         
             if matrix_adi_ref is None:
@@ -1772,7 +1791,7 @@ def contrast_step_dist(
             ) / np.median(starphot)
         Student_res[np.where(Student_res < 0)] = 1
         Student_res[np.where(Student_res > 1)] = 1
-        return (thru_cont_avg, Student_res, rad_dist)
+        return (thru_cont_avg, Student_res, rad_dist, all_fluxes)
     else:
         return (thru_cont_avg, rad_dist)
 
@@ -3723,6 +3742,9 @@ def contrast_multi_epoch_walk3(
     -opt_ncomp: if flux to inject and optimal ncomp is already known, can skip 
     its calculation by setting per_values to an empyt list and putting the 
     optimal number of principal components in opt_ncomp
+    
+    -snr_target: tuple or list of two numbers, the targeted SNR will be in the 
+    middle of that range of values, but any value in between will be accepted
     """
     
     from ..metrics import snr
