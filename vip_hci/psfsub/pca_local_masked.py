@@ -11,6 +11,7 @@ from hciplot import plot_frames, plot_cubes
 from typing import Tuple, Union, List
 from dataclasses import dataclass
 from enum import Enum
+import numbers
 from photutils.aperture import CircularAperture
 from .svd import svd_wrapper, SVDecomposer
 from .utils_pca import pca_incremental, pca_grid
@@ -1911,19 +1912,20 @@ def pca_segments_mask(
     else:
         return results
     
-
-def pca_ardi_annulus_mask_edge(
+    
+def pca_annular_mask_edge(
     cube,
     angle_list,
-    inner_radius=4,
-    fwhm=4,
-    asize=5,
+    radius_int,
+    fwhm,
+    asize,
+    n_annuli = 'auto',
     n_segments = 8,
-    segment_side_padding = 0.5,
-    segment_radial_padding = 0.2,
     mask_rdi = None,
-    pa_thr=0,
+    delta_rot=0,
     ncomp=1,
+    segment_side_padding = 0,
+    segment_radial_padding = 0,
     svd_mode="lapack",       
     nproc=None,
     min_frames_lib=2,
@@ -1940,6 +1942,217 @@ def pca_ardi_annulus_mask_edge(
     weights=None,
     cube_sig=None,
     left_eigv=False,
+    crop = True,
+    **rot_options
+ ):
+    array = cube
+    if array.ndim != 3:
+        raise TypeError("Input array is not a cube or 3d array")
+    if array.shape[0] != angle_list.shape[0]:
+        raise TypeError("Input vector or parallactic angles has wrong length")
+
+    ni, y, x = array.shape
+    
+    global start_time
+    start_time = time_ini()
+
+    angle_list = check_pa_vector(angle_list)
+    n_annuli = int((y / 2 - radius_int) / asize)
+    
+    if isinstance(delta_rot, tuple):
+        delta_rot = np.linspace(delta_rot[0], delta_rot[1], num=n_annuli)
+    elif np.isscalar(delta_rot):
+        delta_rot = [delta_rot] * n_annuli
+        
+        
+    theta_saved = theta_init
+    theta_init = []
+    if not isinstance(theta_saved, str):
+        if isinstance(theta_saved, numbers.Number):
+            theta_saved = np.array([theta_saved])
+        n_ang = len(theta_saved)
+        for ann in range(n_annuli):
+            theta_init.append(np.array([theta_saved]))     
+    elif theta_saved =='auto':
+        n_ang = 2
+
+    if verbose:
+        msg = "N annuli = {}, FWHM = {:.3f}"
+        print(msg.format(n_annuli, fwhm))
+        print("PCA per annulus (or annular sectors):")
+
+    if nproc is None:  # Hyper-threading "duplicates" the cores -> cpu_count/2
+        nproc = cpu_count() // 2
+        
+    if isinstance(ncomp, list):
+        nncomp = len(ncomp)
+        cube_out = np.zeros([n_ang, nncomp, ni, y,x])
+    elif isinstance(ncomp, np.ndarray):
+        #1st dim of ncomp is all the epochs
+        #2nd dim is the ncomp values tested
+        nncomp = ncomp.shape[1]
+        cube_out = np.zeros([n_ang, nncomp, ni, y, x])
+    elif np.isscalar(ncomp):
+        nncomp = 1
+        cube_out = np.zeros([n_ang, 1, ni, y, x])
+        
+    if isinstance(n_segments, list):
+        if len(n_segments) != n_annuli:
+            raise ValueError('If n_segments is a list, its length must be the same as the number of annuli')
+        n_segments_saved = n_segments
+    elif n_segments == 'half' or n_segments == 'whole':
+        n_segments_saved = np.zeros((n_annuli), dtype = int)
+    elif np.isscalar(n_segments):
+        n_segments_saved = np.array([n_segments] * n_annuli)
+        
+    
+    for ann in range(n_annuli):
+        if isinstance(ncomp, tuple):
+            if len(ncomp) == n_annuli:
+                ncompann = ncomp[ann]
+            else:
+                msg = "If `ncomp` is a tuple, its length must match the number "
+                msg += "of annuli"
+                raise TypeError(msg)
+        else:
+            ncompann = ncomp
+
+        res_ann_par = _define_annuli(
+            angle_list,
+            ann,
+            n_annuli,
+            fwhm,
+            radius_int,
+            asize,
+            delta_rot[ann],
+            1,
+            verbose,
+            True,
+        )
+        pa_thr, inner_radius, ann_center = res_ann_par
+        
+        if ann == 0:
+            fully_inner_rad = inner_radius
+        
+        if n_segments == 'half':
+            n_segments_saved[ann] = int(np.ceil(4*np.pi*ann_center/fwhm))
+        elif n_segments == 'whole':
+            n_segments_saved[ann] = int(np.floor(2*np.pi*ann_center/fwhm))
+            
+        if theta_saved == 'auto':
+            angular_range = 360 #in degrees
+            angular_width = angular_range/n_segments_saved[ann]
+            theta_init.append([0, angular_width/2])
+        
+        cube_out += pca_ardi_annulus_mask_edge(
+            cube,
+            angle_list,
+            inner_radius,
+            fwhm,
+            asize,
+            n_segments_saved[ann],
+            mask_rdi,
+            pa_thr,
+            ncompann,
+            segment_side_padding,
+            segment_radial_padding,
+            svd_mode,
+            nproc,
+            min_frames_lib,
+            max_frames_lib,
+            tol,
+            scaling,
+            imlib,
+            interpolation,
+            collapse,
+            -1,
+            verbose,
+            cube_ref,
+            theta_init[ann],
+            weights,
+            cube_sig,
+            left_eigv,
+            True,
+            **rot_options
+        )
+        
+    results = np.zeros((n_ang,nncomp,y,x))
+    cube_der = np.zeros_like(cube_out)
+    
+    #derotation
+    for o in range(n_ang):
+        for n in range(nncomp):
+            cube_der[o, n,:,:,:] = cube_derotate(
+                cube_out[o,n],
+                angle_list,
+                nproc=nproc,
+                imlib=imlib,
+                interpolation=interpolation,
+                **rot_options,
+            )
+            results[o,n,:,:] = cube_collapse(cube_der[o,n,:,:,:], mode=collapse, w=weights)
+        
+    final_result = np.zeros((nncomp,y,x))
+    final_res_ = np.zeros((nncomp, ni, y, x))
+    
+    angular_range = 360 #in degrees
+    angular_width = angular_range/n_segments_saved
+
+    weights = filled_angular_array(cube[0], n_segments_saved, 
+                                   fully_inner_rad, asize, theta_init)
+    if len(theta_init[0]) > 1:
+        for n in range(nncomp):
+            final_result[n]=np.average(results[:,n], axis=0, weights = weights)
+            for j in range(ni):
+                final_res_[n,j] = np.average(cube_der[:,n,j], axis = 0, weights = weights)
+    else:
+        final_result[:,:,:] = results[0]
+        final_res_ = cube_der[0]
+    
+        
+    if verbose:
+        print("Done derotating and combining.")
+        timing(start_time)
+        
+    if nncomp == 1:
+        final_result = final_result[0]
+        final_res_ = final_res_[0]
+        
+    if full_output:
+        return cube_out, final_res_, final_result
+    else:
+        return final_result
+    
+
+def pca_ardi_annulus_mask_edge(
+    cube,
+    angle_list,
+    inner_radius=4,
+    fwhm=4,
+    asize=5,
+    n_segments = 8,
+    mask_rdi = None,
+    pa_thr=0,
+    ncomp=1,
+    segment_side_padding = 0.5,
+    segment_radial_padding = 0.2,
+    svd_mode="lapack",       
+    nproc=None,
+    min_frames_lib=2,
+    max_frames_lib=200,
+    tol=1e-1,
+    scaling=None,
+    imlib="vip-fft",
+    interpolation="lanczos4",
+    collapse="median",
+    full_output=False,
+    verbose=1,
+    cube_ref=None,
+    theta_init='auto',
+    weights=None,
+    cube_sig=None,
+    left_eigv=False,
+    crop=False,
     **rot_options,
 ):
     """
@@ -1974,7 +2187,12 @@ def pca_ardi_annulus_mask_edge(
     
     angular_range = 360 #in degrees
     ann_center = inner_radius+(asize/2)
-
+    
+    if n_segments == 'half':
+        n_segments = int(np.ceil(4*np.pi*ann_center/fwhm))
+    elif n_segments == 'whole':
+        n_segments = int(np.floor(2*np.pi*ann_center/fwhm))
+        
     angular_width = angular_range/n_segments
     
     if theta_init == 'auto':
@@ -1988,12 +2206,40 @@ def pca_ardi_annulus_mask_edge(
         centers.append([theta_init[off] + angular_width/2])
         
     total_rot = 0
-    while (total_rot+angular_width) < 360:
+    while (total_rot+angular_width) < 359.999999:
         total_rot += angular_width
         for off in range(nbr_offsets):
             centers[off].append(centers[off][-1]+angular_width)
 
     n_images = len(centers[0])
+    
+    nnpcs = ncomp.shape[0]
+    if len(ncomp.shape) == 2:
+        nnpcs = ncomp.shape[1]
+    
+    results = np.zeros((nbr_offsets,nnpcs,cube.shape[1],cube.shape[2]))
+    cube_der = np.zeros((nbr_offsets,nnpcs,ni,cube.shape[1],cube.shape[2]))
+    
+    yy,xx = get_annulus_segments(cube[0], inner_radius, asize, 1, 0)[0]
+    full_mask_annulus = np.zeros_like(cube[0], dtype = int)
+    full_mask_annulus[yy,xx] = 1
+    
+    if crop:
+        new_size = int(np.ceil(inner_radius + asize + segment_radial_padding*fwhm)*2)
+        if (new_size%2==0) != (y%2==0):
+            new_size += 1
+        if new_size > y:
+            new_size = y
+        elif new_size < y:
+            cube = cube_crop_frames(cube, new_size, verbose = False)
+        in_start = int((y - new_size)/2)
+        in_end = int(y-in_start)
+    else:
+        new_size = y
+        in_start = int(0)
+        in_end = int(y)
+        
+    result_noder = np.zeros((nbr_offsets,nnpcs,ni,cube.shape[1],cube.shape[2]))
     
     yy,xx = get_annulus_segments(cube[0], inner_radius, asize, 1, 0)[0]
     mask_annulus = np.zeros_like(cube[0], dtype = int)
@@ -2015,25 +2261,17 @@ def pca_ardi_annulus_mask_edge(
     cy, cx = frame_center(cube[0])
     twopi = 2*np.pi
     
-    nnpcs = ncomp.shape[0]
-    if len(ncomp.shape) == 2:
-        nnpcs = ncomp.shape[1]
-    
-    results = np.zeros((nbr_offsets,nnpcs,cube.shape[1],cube.shape[2]))
-    result_noder = np.zeros((nbr_offsets,nnpcs,ni,cube.shape[1],cube.shape[2]))
-    cube_der = np.zeros((nbr_offsets,nnpcs,ni,cube.shape[1],cube.shape[2]))
-    
     nbr_frames = []
     
     for o, off in enumerate(theta_init):
-        Indices_segments = get_annulus_segments(cube[0], inner_radius, asize, n_segments, off)
+        Indices_segments = get_annulus_segments(cube[0], inner_radius, asize, int(n_segments), off)
         for i, center in enumerate(centers[o]):
             boat = np.zeros_like(cube[0])
             boat[Indices_segments[i][0], Indices_segments[i][1]] = 1
         
             #plot_frames(boat)
         
-            sci_cube_skysub = np.zeros((nnpcs, ni, y, x))
+            sci_cube_skysub = np.zeros((nnpcs, ni, new_size, new_size))
             for k in range(cube.shape[0]):
                 position = center - angle_list[k]
                 boat_k = mask_local_boat(mask_annulus, position, angular_width)
@@ -2100,13 +2338,13 @@ def pca_ardi_annulus_mask_edge(
                 tmp_sky = np.zeros_like(cube[0])
                 if len(ncomp.shape) == 2:
                     for n in range(np.max(ncomp[k])):
-                        tmp_sky += np.array([transf_sci_scaled[n]*sky_pcs_boat_cube[n]]).reshape(cube.shape[1], cube.shape[2])
+                        tmp_sky += np.array([transf_sci_scaled[n]*sky_pcs_boat_cube[n]]).reshape(new_size, new_size)
                         if n+1 in ncomp[k]:
                             index = np.where(ncomp[k] == n+1)[0][0]
                             sci_cube_skysub[index,k] = frame_boat - tmp_sky
                 else:
                     for n in range(np.max(ncomp)):
-                        tmp_sky += np.array([transf_sci_scaled[n]*sky_pcs_boat_cube[n]]).reshape(cube.shape[1], cube.shape[2])
+                        tmp_sky += np.array([transf_sci_scaled[n]*sky_pcs_boat_cube[n]]).reshape(new_size, new_size)
                         if n+1 in ncomp:
                             index = np.where(ncomp == n+1)[0][0]
                             sci_cube_skysub[index,k] = frame_boat - tmp_sky
@@ -2119,7 +2357,7 @@ def pca_ardi_annulus_mask_edge(
         #derotation
         if full_output != -1:
             for n in range(nnpcs):
-                cube_der[o,n,:,:,:] = cube_derotate(
+                cube_der[o,n,:,in_start:in_end,in_start:in_end] = cube_derotate(
                     result_noder[o,n],
                     angle_list,
                     nproc=nproc,
@@ -2128,10 +2366,10 @@ def pca_ardi_annulus_mask_edge(
                     **rot_options,
                     )
                 results[o,n,:,:] = cube_collapse(cube_der[o,n,:,:,:], mode=collapse, w=weights)
-                results[o,n]*=mask_annulus
+                results[o,n]*=full_mask_annulus
     
     if full_output != -1:
-        weights = filled_angular_arrays(cube[0], multiple = 360/n_segments, offset = theta_init)
+        weights = filled_angular_annulus(cube[0], multiple = 360/n_segments, offset = theta_init)
         final_res = np.zeros((nnpcs, y, x))
         final_ = np.zeros((nnpcs,ni,y,x))
         if len(theta_init) > 1:
@@ -2141,7 +2379,10 @@ def pca_ardi_annulus_mask_edge(
                     final_[n,j] = np.average(cube_der[:,n,j], axis = 0, weights = weights)
         else:
             final_res[:,:,:] = results[0]
-            final_ = cube_der[0,n]
+            final_ = cube_der[0]
+            
+    final_noder = np.zeros_like(cube_der)
+    final_noder[:,:,:,in_start:in_end,in_start:in_end] = result_noder
     
     if verbose:
         print(np.mean(nbr_frames))
@@ -2150,7 +2391,7 @@ def pca_ardi_annulus_mask_edge(
         results = results[:,0,:,:]
     #ncomp is a list or not??
     if full_output == -1:
-        return result_noder
+        return final_noder
     elif full_output == True:
         return results, final_, final_res
     else:
@@ -2217,7 +2458,7 @@ def Quadrant_selection(angle, multiple, smoothing, offset):
 
 
 
-def filled_angular_arrays(array, multiple, offset, smoothing=0.7):
+def filled_angular_annulus(array, multiple, offset, smoothing=0.7):
     """
     Fill a 2D array with values based on the position angle of the pixels.
     Pixels close to an angle multiple of 10 degrees get high values, 
@@ -2252,6 +2493,30 @@ def filled_angular_arrays(array, multiple, offset, smoothing=0.7):
             filled_array[:,i, j] = Quadrant_selection(angle, multiple, smoothing, offset)
 
     return filled_array
+
+
+def filled_angular_array(array, n_segments, inner_radius, asize, offset, smoothing=0.7):
+    rows, cols = array.shape
+    results = np.zeros((2,rows, cols))
+    
+    n_annuli = len(n_segments)
+    n_segments = np.array(n_segments)
+    multiple = 360/n_segments
+    
+    for ann in range(n_annuli):
+        yy,xx = get_annulus_segments(array, inner_radius+ann*asize, asize, 1, 0)[0]
+        mask_annulus = np.zeros_like(array, dtype = int)
+        mask_annulus[yy,xx] = 1
+        if ann == 0:
+            mask_annulus = mask_circle(mask_annulus, inner_radius, 
+                                       fillwith = 1, mode = 'in')
+        elif ann == n_annuli-1:
+            mask_annulus = mask_circle(mask_annulus, inner_radius+ann*asize, 
+                                       fillwith = 1, mode = 'out')
+        this_ang = filled_angular_annulus(array, multiple[ann], offset[ann], smoothing)
+        results += this_ang*mask_annulus
+    
+    return results
 
 
 def recombine_multiple(images, weights, axis):

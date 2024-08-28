@@ -892,13 +892,15 @@ def contrast_step_dist_opt(
             nnpcs = 1
             
     algo_name = algo.__name__
-    idx = algo.__module__.index('.', algo.__module__.index('.') + 1)
-    mod = algo.__module__[:idx]
-    tmp = __import__(mod, fromlist=[algo_name.upper()+'_Params'])    
+    #idx = algo.__module__.index('.', algo.__module__.index('.') + 1)
+    #mod = algo.__module__[:idx]
+    #tmp = __import__(mod, fromlist=[algo_name.upper()+'_Params'])    
     #algo_params = getattr(tmp, algo_name.upper()+'_Params')
     
-    algo_supported = ['pca_annular', 'pca_annular_corr', 
-                      'pca_annular_multi_epoch', 'pca_annular_corr_multi_epoch']
+    algo_supported = ['pca_annular', 'pca_annular_corr',  
+                      'pca_annular_mask', 'pca_annular_masked',
+                      'pca_annular_multi_epoch', 'pca_annular_corr_multi_epoch',
+                      'pca_annular_mask_edge']
     if algo_name not in algo_supported:
         raise ValueError("Algorithm is not supported")
         
@@ -976,12 +978,12 @@ def contrast_step_dist_opt(
         else:
             raise ValueError("distance parameter must be a float, a list or equal to 'auto'")
         
-        if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
-            _, res_cube_no_fc[:, :, :, :], frames_no_fc[:, :, :] = algo(
+        if algo_name == 'pca_annular_multi_epoch' or algo_name == 'pca_annular_corr_multi_epoch':
+            frames_no_fc[:, :, :], res_cube_no_fc[:, :, :, :] = algo(
                         cube=cube, angle_list=angle_list, fwhm=fwhm_med,
                         verbose=verbose, full_output = True, **algo_dict)
-        elif algo_name == 'pca_annular_multi_epoch' or algo_name == 'pca_annular_corr_multi_epoch':
-            frames_no_fc[:, :, :], res_cube_no_fc[:, :, :, :] = algo(
+        else:
+            _, res_cube_no_fc[:, :, :, :], frames_no_fc[:, :, :] = algo(
                         cube=cube, angle_list=angle_list, fwhm=fwhm_med,
                         verbose=verbose, full_output = True, **algo_dict)
     else:
@@ -992,7 +994,6 @@ def contrast_step_dist_opt(
     nbr_dist = distance.shape[0]
 
     
-    #CHANGE NOISE ANNULI TO HAVE IT ONLY HERE AT THIS DISTANCE !!!
     noise = []
     mean_res = []
     noise_avg = np.array([noise_dist(frames_no_fc[n, :, :], rad_dist, fwhm_med, wedge, 
@@ -1077,7 +1078,7 @@ def contrast_step_dist_opt(
                 parangles,
                 flux[d],
                 rad_dists=rad_dist[d],
-                theta=br * angle_branch + theta,
+                theta=(br+d%nbranch)* angle_branch + theta,
                 nproc=nproc,
                 imlib=imlib,
                 interpolation=interpolation,
@@ -1106,14 +1107,14 @@ def contrast_step_dist_opt(
             print(msg2.format(br + 1))
             timing(start_time)
     
-        if algo_name == 'pca_annular' or algo_name == 'pca_annular_corr':
-            _, res_cube_fc[:, br, : ,:, :], frames_fc[:, br, :, :] = algo(cube=cube_fc, 
-                    angle_list=angle_list, fwhm=fwhm_med, verbose=verbose, 
-                    full_output = True, **algo_dict)
-        elif algo_name == 'pca_annular_multi_epoch' or algo_name == 'pca_annular_corr_multi_epoch':
+        if algo_name == 'pca_annular_multi_epoch' or algo_name == 'pca_annular_corr_multi_epoch':
             frames_fc[:, br, :, :], res_cube_fc[:, br, : ,:, :] = algo(cube=cube_fc, 
                     angle_list=angle_list, fwhm=fwhm_med, verbose=verbose, 
                     full_output = True, **algo_dict)
+        else:
+            _, res_cube_fc[:, br, :, :, :], frames_fc[:, br, :, :] = algo(
+                        cube=cube_fc, angle_list=angle_list, fwhm=fwhm_med,
+                        verbose=verbose, full_output = True, **algo_dict)
         
 
         injected_flux = apertureOne_flux(fc_map, loc[:,br,0], loc[:,br,1], fwhm_med)
