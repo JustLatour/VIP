@@ -2393,7 +2393,7 @@ def pca_ardi_annulus_mask_edge(
     if full_output == -1:
         return final_noder
     elif full_output == True:
-        return results, final_, final_res
+        return result_noder, final_, final_res
     else:
         return results, final_res
     

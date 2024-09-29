@@ -347,7 +347,7 @@ def contrast_optimized(
                 parangles,
                 flux,
                 rad_dists=rad_dist,
-                theta=br * angle_branch + theta,
+                theta=(br+d%nbranch) * angle_branch + theta,
                 nproc=nproc,
                 imlib=imlib,
                 interpolation=interpolation,
@@ -356,9 +356,9 @@ def contrast_optimized(
             
             
             y = cy + rad_dist * \
-                np.sin(np.deg2rad(br * angle_branch + theta))
+                np.sin(np.deg2rad((br+d%nbranch) * angle_branch + theta))
             x = cx + rad_dist * \
-                np.cos(np.deg2rad(br * angle_branch + theta))
+                np.cos(np.deg2rad((br+d%nbranch) * angle_branch + theta))
             fc_map = frame_inject_companion(
                 fc_map, psf_template, y, x, flux, imlib, interpolation
             )
@@ -1092,9 +1092,9 @@ def contrast_step_dist_opt(
         
         for d in range(0, nbr_dist):
             y = cy + rad_dist[d] * \
-                np.sin(np.deg2rad(br * angle_branch + theta))
+                np.sin(np.deg2rad((br+d%nbranch) * angle_branch + theta))
             x = cx + rad_dist[d] * \
-                np.cos(np.deg2rad(br * angle_branch + theta))
+                np.cos(np.deg2rad((br+d%nbranch) * angle_branch + theta))
             fc_map = frame_inject_companion(
                 fc_map, psf_template, y, x, flux[d], imlib, interpolation
             )
@@ -1708,7 +1708,7 @@ def contrast_step_dist(
                     parangles,
                     flux[d],
                     rad_dists=rad_dist[d],
-                    theta=br * angle_branch + theta,
+                    theta=(br+d%nbranch) * angle_branch + theta,
                     nproc=nproc,
                     imlib=imlib,
                     interpolation=interpolation,
@@ -1722,9 +1722,9 @@ def contrast_step_dist(
         
             for d in range(0, nbr_dist):
                 y = cy + rad_dist[d] * \
-                    np.sin(np.deg2rad(br * angle_branch + theta))
+                    np.sin(np.deg2rad((br+d%nbranch) * angle_branch + theta))
                 x = cx + rad_dist[d] * \
-                    np.cos(np.deg2rad(br * angle_branch + theta))
+                    np.cos(np.deg2rad((br+d%nbranch) * angle_branch + theta))
                 fc_map = frame_inject_companion(
                     fc_map, psf_template, y, x, flux[d], imlib, interpolation
                     )
@@ -2435,7 +2435,7 @@ def contrast_multi_epoch_walk(
                 parangles,
                 flux[d],
                 rad_dists=rad_dist[d],
-                theta=br * angle_branch + theta,
+                theta=(br+d%nbranch) * angle_branch + theta,
                 nproc=nproc,
                 imlib=imlib,
                 interpolation=interpolation,
@@ -2449,9 +2449,9 @@ def contrast_multi_epoch_walk(
         
         for d in range(0, nbr_dist):
             y = cy + rad_dist[d] * \
-                np.sin(np.deg2rad(br * angle_branch + theta))
+                np.sin(np.deg2rad((br+d%nbranch) * angle_branch + theta))
             x = cx + rad_dist[d] * \
-                np.cos(np.deg2rad(br * angle_branch + theta))
+                np.cos(np.deg2rad((br+d%nbranch) * angle_branch + theta))
             fc_map = frame_inject_companion(
                 fc_map, psf_template, y, x, flux[d], imlib, interpolation
             )
@@ -3295,7 +3295,7 @@ def contrast_multi_epoch_walk2(
                     parangles,
                     flux[d],
                     rad_dists=rad_dist[d],
-                    theta=br * angle_branch + theta,
+                    theta=(br+d%nbranch) * angle_branch + theta,
                     nproc=nproc,
                     imlib=imlib,
                     interpolation=interpolation,
@@ -3309,9 +3309,9 @@ def contrast_multi_epoch_walk2(
         
             for d in range(0, nbr_dist):
                 y = cy + rad_dist[d] * \
-                    np.sin(np.deg2rad(br * angle_branch + theta))
+                    np.sin(np.deg2rad((br+d%nbranch) * angle_branch + theta))
                 x = cx + rad_dist[d] * \
-                    np.cos(np.deg2rad(br * angle_branch + theta))
+                    np.cos(np.deg2rad((br+d%nbranch) * angle_branch + theta))
                 fc_map = frame_inject_companion(
                     fc_map, psf_template, y, x, flux[d], imlib, interpolation
                 )
@@ -4371,7 +4371,7 @@ def contrast_multi_epoch_walk3(
                     parangles,
                     flux[d],
                     rad_dists=rad_dist[d],
-                    theta=br * angle_branch + theta,
+                    theta=(br+d%nbranch)* angle_branch + theta,
                     nproc=nproc,
                     imlib=imlib,
                     interpolation=interpolation,
@@ -4385,9 +4385,9 @@ def contrast_multi_epoch_walk3(
         
             for d in range(0, nbr_dist):
                 y = cy + rad_dist[d] * \
-                    np.sin(np.deg2rad(br * angle_branch + theta))
+                    np.sin(np.deg2rad((br+d%nbranch) * angle_branch + theta))
                 x = cx + rad_dist[d] * \
-                    np.cos(np.deg2rad(br * angle_branch + theta))
+                    np.cos(np.deg2rad((br+d%nbranch) * angle_branch + theta))
                 fc_map = frame_inject_companion(
                     fc_map, psf_template, y, x, flux[d], imlib, interpolation
                 )
@@ -4630,7 +4630,7 @@ def contrast_multi_epoch_walk3(
                 parangles,
                 flux[d],
                 rad_dists=rad_dist[d],
-                theta=br * angle_branch + theta,
+                theta=(br+d%nbranch) * angle_branch + theta,
                 nproc=nproc,
                 imlib=imlib,
                 interpolation=interpolation,
@@ -4644,9 +4644,9 @@ def contrast_multi_epoch_walk3(
     
         for d in range(0, nbr_dist):
             y = cy + rad_dist[d] * \
-                np.sin(np.deg2rad(br * angle_branch + theta))
+                np.sin(np.deg2rad((br+d%nbranch) * angle_branch + theta))
             x = cx + rad_dist[d] * \
-                np.cos(np.deg2rad(br * angle_branch + theta))
+                np.cos(np.deg2rad((br+d%nbranch) * angle_branch + theta))
             fc_map = frame_inject_companion(
                 fc_map, psf_template, y, x, flux[d], imlib, interpolation
             )
