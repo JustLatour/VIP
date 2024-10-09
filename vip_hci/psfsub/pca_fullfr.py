@@ -376,6 +376,7 @@ def pca(*all_args: List, **all_kwargs: dict):
     if algo_params is None:
         algo_params = PCA_Params(*all_args, **class_params)
 
+
     # by default, interpolate masked area before derotation if a mask is used
     if algo_params.mask_center_px and len(rot_options) == 0:
         rot_options['mask_val'] = 0
@@ -594,7 +595,9 @@ def pca(*all_args: List, **all_kwargs: dict):
         if len(medians) > 0:
             medians = np.array(medians)
 
+
     # 3D RDI or ADI. Shape of cube: (n_adi_frames, y, x)
+
     else:
         add_params = {
             "start_time": start_time,
@@ -1334,156 +1337,6 @@ def _adimsdi_doublepca_ifs(
             frame_i = mask_circle(frame_i, mask_center_px)
 
     return frame_i
-
-
-# def _adi_rdi_pca(
-#     cube,
-#     cube_ref,
-#     angle_list,
-#     ncomp,
-#     source_xy,
-#     delta_rot,
-#     fwhm,
-#     scaling,
-#     mask_center_px,
-#     svd_mode,
-#     imlib,
-#     interpolation,
-#     collapse,
-#     verbose,
-#     start_time,
-#     nproc,
-#     weights=None,
-#     mask_rdi=None,
-#     cube_sig=None,
-#     left_eigv=False,
-#     **rot_options,
-# ):
-#     """Handle the ADI+RDI post-processing."""
-#     n, y, x = cube.shape
-#     n_ref, y_ref, x_ref = cube_ref.shape
-#     angle_list = check_pa_vector(angle_list)
-#     if not isinstance(ncomp, int):
-#         raise TypeError("`ncomp` must be an int in the ADI+RDI case")
-#     if ncomp > n_ref:
-#         msg = (
-#             "Requested number of PCs ({}) higher than the number of frames "
-#             + "in the reference cube ({}); using the latter instead."
-#         )
-#         print(msg.format(ncomp, n_ref))
-#         ncomp = n_ref
-
-#     if not cube_ref.ndim == 3:
-#         msg = "Input reference array is not a cube or 3d array"
-#         raise ValueError(msg)
-#     if not y_ref == y and x_ref == x:
-#         msg = "Reference and target frames have different shape"
-#         raise TypeError(msg)
-
-#     if mask_rdi is None:
-#         if source_xy is None:
-#             residuals_result = _project_subtract(
-#                 cube,
-#                 cube_ref,
-#                 ncomp,
-#                 scaling,
-#                 mask_center_px,
-#                 svd_mode,
-#                 verbose,
-#                 True,
-#                 cube_sig=cube_sig,
-#                 left_eigv=left_eigv,
-#             )
-#             residuals_cube = residuals_result[0]
-#             reconstructed = residuals_result[1]
-#             V = residuals_result[2]
-#             pcs = reshape_matrix(V, y, x) if not left_eigv else V.T
-#             recon = reshape_matrix(reconstructed, y, x)
-#         # A rotation threshold is applied
-#         else:
-#             if delta_rot is None or fwhm is None:
-#                 msg = "Delta_rot or fwhm parameters missing. Needed for the"
-#                 msg += "PA-based rejection of frames from the library"
-#                 raise TypeError(msg)
-#             nfrslib = []
-#             residuals_cube = np.zeros_like(cube)
-#             recon_cube = np.zeros_like(cube)
-#             yc, xc = frame_center(cube[0], False)
-#             x1, y1 = source_xy
-#             ann_center = dist(yc, xc, y1, x1)
-#             pa_thr = _compute_pa_thresh(ann_center, fwhm, delta_rot)
-#             mid_range = np.abs(np.max(angle_list) - np.min(angle_list)) / 2
-#             if pa_thr >= mid_range - mid_range * 0.1:
-#                 new_pa_th = float(mid_range - mid_range * 0.1)
-#                 if verbose:
-#                     msg = "PA threshold {:.2f} is too big, will be set to "
-#                     msg += "{:.2f}"
-#                     print(msg.format(pa_thr, new_pa_th))
-#                 pa_thr = new_pa_th
-
-#             for frame in range(n):
-#                 if ann_center > fwhm * 3:  # TODO: 3 optimal value? new par?
-#                     ind = _find_indices_adi(
-#                         angle_list, frame, pa_thr, truncate=True
-#                     )
-#                 else:
-#                     ind = _find_indices_adi(angle_list, frame, pa_thr)
-
-#                 res_result = _project_subtract(
-#                     cube,
-#                     cube_ref,
-#                     ncomp,
-#                     scaling,
-#                     mask_center_px,
-#                     svd_mode,
-#                     verbose,
-#                     full_output,
-#                     ind,
-#                     frame,
-#                     cube_sig=cube_sig,
-#                     left_eigv=left_eigv,
-#                     min_frames_pca=min_frames_pca,
-#                 )
-#                 if full_output:
-#                     nfrslib.append(res_result[0])
-#                     residual_frame = res_result[1]
-#                     recon_frame = res_result[2]
-#                     residuals_cube[frame] = residual_frame.reshape((y, x))
-#                     recon_cube[frame] = recon_frame.reshape((y, x))
-#                 else:
-#                     nfrslib.append(res_result[0])
-#                     residual_frame = res_result[1]
-#                     residuals_cube[frame] = residual_frame.reshape((y, x))
-
-#             # number of frames in library printed for each annular quadrant
-#             if verbose:
-#                 descriptive_stats(nfrslib, verbose=verbose,
-#                                   label="Size LIB: ")
-#     else:
-#         residuals_result = cube_subtract_sky_pca(
-#             cube, cube_ref, mask_rdi, ncomp=ncomp, full_output=True
-#         )
-#         residuals_cube = residuals_result[0]
-#         pcs = residuals_result[2]
-#         recon = residuals_result[-1]
-
-#     residuals_cube_ = cube_derotate(
-#         residuals_cube,
-#         angle_list,
-#         nproc=nproc,
-#         imlib=imlib,
-#         interpolation=interpolation,
-#         **rot_options,
-#     )
-#     frame = cube_collapse(residuals_cube_, mode=collapse, w=weights)
-#     if mask_center_px:
-#         frame = mask_circle(frame, mask_center_px)
-
-#     if verbose:
-#         print("Done de-rotating and combining")
-#         timing(start_time)
-
-#     return pcs, recon, residuals_cube, residuals_cube_, frame
 
 
 def _project_subtract(
