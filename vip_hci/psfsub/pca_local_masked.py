@@ -1996,10 +1996,10 @@ def pca_annular_mask_edge(
         nncomp = 1
         cube_out = np.zeros([n_ang, 1, ni, y, x])
         
-    if isinstance(n_segments, list):
+    if isinstance(n_segments, list) or isinstance(n_segments, np.ndarray):
         if len(n_segments) != n_annuli:
             raise ValueError('If n_segments is a list, its length must be the same as the number of annuli')
-        n_segments_saved = n_segments
+        n_segments_saved = np.array(n_segments)
     elif n_segments == 'half' or n_segments == 'whole':
         n_segments_saved = np.zeros((n_annuli), dtype = int)
     elif np.isscalar(n_segments):
@@ -2100,6 +2100,7 @@ def pca_annular_mask_edge(
 
     weights = filled_angular_array(cube[0], n_segments_saved, 
                                    fully_inner_rad, asize, theta_init)
+    
     if len(theta_init[0]) > 1:
         for n in range(nncomp):
             final_result[n]=np.average(results[:,n], axis=0, weights = weights)
