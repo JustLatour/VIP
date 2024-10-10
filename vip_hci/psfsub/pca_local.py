@@ -527,7 +527,7 @@ def pca_annular_corr(*all_args: List, **all_kwargs: dict):
     -epoch_indices:the frames of the cube on which the pca is actually applied.
         This allows to have a big ADI cubes with some frames used as reference
         images for the principal components calculation only.
-    -step_corr:The number of images at once that are treated. To optimize the
+    -step_corr:The number of images at once that are processed. To optimize the
         time taken by the algorithm, this parameter can be set to more than one.
         If equal to two for example, pca will be applied on the first two frames
         at once, meaning they will both have the same principal components. 
@@ -568,6 +568,9 @@ def pca_annular_corr(*all_args: List, **all_kwargs: dict):
         rot_options['mask_val'] = 0
         rot_options['ker'] = 1
         rot_options['interp_zeros'] = True
+        
+    if algo_params.epoch_indices == None:
+        algo_params.epoch_indices = (0, algo_params.cube.shape[0])
         
 
     global start_time
