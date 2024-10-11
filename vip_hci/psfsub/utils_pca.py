@@ -188,12 +188,16 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
     """
     from ..metrics import snr, frame_report
 
-    def truncate_svd_get_finframe(matrix, angle_list, ncomp, V):
+    #def truncate_svd_get_finframe(matrix, angle_list, ncomp, V):
+    def truncate_svd_get_finframe(matrix, residuals, angle_list, ncomp, V):
         """ Projection, subtraction, derotation plus combination in one frame.
         Only for full-frame"""
-        transformed = np.dot(V[:ncomp], matrix.T)
-        reconstructed = np.dot(transformed.T, V[:ncomp])
-        residuals = matrix - reconstructed
+        #transformed = np.dot(V[:ncomp], matrix.T)
+        #reconstructed = np.dot(transformed.T, V[:ncomp])
+        #residuals = matrix - reconstructed
+        transformed = np.dot(V[ncomp[0]:ncomp[1]], matrix.T)
+        reconstructed = np.dot(transformed.T, V[ncomp[0]:ncomp[1]])
+        residuals = residuals - reconstructed
         frsize = int(np.sqrt(matrix.shape[1]))  # only for square frames
         residuals_res = reshape_matrix(residuals, frsize, frsize)
 
@@ -223,7 +227,8 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
         residuals_res_der = cube_derotate(residuals_reshaped, angle_list,
                                           **rot_options)
         res_frame = cube_collapse(residuals_res_der, mode=collapse, w=weights)
-        return res_frame
+        return res_frame, residuals
+        #return res_frame
 
     def truncate_svd_get_finframe_ann(matrix, indices, angle_list, ncomp, V):
         """ Projection, subtraction, derotation plus combination in one frame.
@@ -343,9 +348,12 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
     snrlist = []
     fluxlist = []
     frlist = []
+    residuals = np.copy(matrix)
+    prev = 0
     for pc in pclist:
         if mode == 'fullfr':
-            frame = truncate_svd_get_finframe(matrix, angle_list, pc, V)
+            #frame = truncate_svd_get_finframe(matrix, angle_list, pc, V)
+            frame, residuals = truncate_svd_get_finframe(matrix, residuals, angle_list, (prev,pc), V)
         elif mode == 'annular':
             frame = truncate_svd_get_finframe_ann(matrix, annind,
                                                   angle_list, pc, V)
@@ -360,6 +368,7 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
             fluxlist.append(flux)
 
         frlist.append(frame)
+        prev = pc
 
     cubeout = np.array((frlist))
 
