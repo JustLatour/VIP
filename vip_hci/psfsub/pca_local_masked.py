@@ -24,7 +24,8 @@ from ..config.utils_param import setup_parameters, separate_kwargs_dict
 from ..preproc.derotation import _find_indices_adi, _find_indices_adi2, _compute_pa_thresh, _define_annuli
 from ..preproc import cube_rescaling_wavelengths as scwave
 from ..preproc import (cube_derotate, cube_collapse, cube_subtract_sky_pca,
-                       check_pa_vector, check_scal_vector, cube_crop_frames)
+                       check_pa_vector, check_scal_vector, cube_crop_frames,
+                       cube_detect_badfr_correlation)
 from ..stats import descriptive_stats
 from ..var import (frame_center, dist, prepare_matrix, reshape_matrix,
                    cube_filter_lowpass, mask_circle, get_annulus_segments)
@@ -1916,9 +1917,9 @@ def pca_segments_mask(
 def pca_annular_mask_edge(
     cube,
     angle_list,
-    radius_int,
-    fwhm,
-    asize,
+    radius_int=4,
+    fwhm=4,
+    asize=5,
     n_annuli = 'auto',
     n_segments = 8,
     mask_rdi = None,
@@ -1943,6 +1944,7 @@ def pca_annular_mask_edge(
     cube_sig=None,
     left_eigv=False,
     crop = True,
+    corr = False,
     **rot_options
  ):
     array = cube
@@ -2004,7 +2006,6 @@ def pca_annular_mask_edge(
         n_segments_saved = np.zeros((n_annuli), dtype = int)
     elif np.isscalar(n_segments):
         n_segments_saved = np.array([n_segments] * n_annuli)
-        
     
     for ann in range(n_annuli):
         if isinstance(ncomp, tuple):
@@ -2026,7 +2027,7 @@ def pca_annular_mask_edge(
             asize,
             delta_rot[ann],
             1,
-            verbose,
+            False,
             True,
         )
         pa_thr, inner_radius, ann_center = res_ann_par
@@ -2073,6 +2074,7 @@ def pca_annular_mask_edge(
             cube_sig,
             left_eigv,
             True,
+            corr,
             **rot_options
         )
         
@@ -2119,6 +2121,9 @@ def pca_annular_mask_edge(
         final_result = final_result[0]
         final_res_ = final_res_[0]
         
+    final_result = mask_circle(final_result, fully_inner_rad)
+    final_result = mask_circle(final_result, inner_radius + asize, mode = 'out')
+        
     if full_output:
         return cube_out, final_res_, final_result
     else:
@@ -2154,6 +2159,7 @@ def pca_ardi_annulus_mask_edge(
     cube_sig=None,
     left_eigv=False,
     crop=False,
+    corr=False,
     **rot_options,
 ):
     """
@@ -2233,6 +2239,8 @@ def pca_ardi_annulus_mask_edge(
             new_size = y
         elif new_size < y:
             cube = cube_crop_frames(cube, new_size, verbose = False)
+            if cube_ref is not None:
+                cube_ref = cube_crop_frames(cube_ref, new_size, verbose = False)
         in_start = int((y - new_size)/2)
         in_end = int(y-in_start)
     else:
@@ -2283,10 +2291,21 @@ def pca_ardi_annulus_mask_edge(
                     anchor_k = mask_annulus - hidden_anchor_k
             
                 #plot_frames(boat_k)
-            
-                adi_indices = _find_indices_adi2(angle_list, k, pa_thr,
+                
+                if corr:
+                    adi_indices = _find_indices_adi2(angle_list, k, pa_thr,
+                                             truncate=False)
+                    if len(adi_indices > max_frames_lib):
+                        corr_ok = cube_detect_badfr_correlation(cube[adi_indices],
+                                cube[k], crop_size=new_size-2, plot = False,
+                                mode = 'annulus', inradius=inner_radius,
+                                width = asize, full_output = True)[2]
+                        adi_indices = adi_indices[np.argsort(corr_ok)[::-1][0:max_frames_lib]]
+                else:
+                    adi_indices = _find_indices_adi2(angle_list, k, pa_thr,
                                              truncate=True,
                                              max_frames=max_frames_lib)
+                    
                 adi_indices = np.sort(adi_indices)
             
                 frame_boat = cube[k] * boat_k
@@ -2297,7 +2316,18 @@ def pca_ardi_annulus_mask_edge(
             
                 cube_used = cube[adi_indices]
                 if cube_ref is not None:
-                    cube_used = np.vstack((cube_used, cube_ref))
+                    if corr:
+                        if cube_ref.shape[0] > max_frames_lib:
+                            corr_ok = cube_detect_badfr_correlation(cube_ref,
+                                    cube[k], crop_size=new_size-2, plot = False,
+                                    mode = 'annulus', inradius=inner_radius,
+                                    width = asize, full_output = True)[2]
+                            rdi_indices = np.argsort(corr_ok[::-1][0:max_frames_lib])
+                        else:
+                            rdi_indices = np.arange(0, cube_ref.shape[0])
+                        cube_used = np.vstack((cube_used, cube_ref[rdi_indices]))
+                    else:
+                        cube_used = np.vstack((cube_used, cube_ref))
                 
                 nbr_frames.append(cube_used.shape[0])
             
@@ -2516,6 +2546,8 @@ def filled_angular_array(array, n_segments, inner_radius, asize, offset, smoothi
                                        fillwith = 1, mode = 'out')
         this_ang = filled_angular_annulus(array, multiple[ann], offset[ann], smoothing)
         results += this_ang*mask_annulus
+    
+    results[0][np.where(np.sum(results, axis = 0) == 0)] = 1
     
     return results
 
