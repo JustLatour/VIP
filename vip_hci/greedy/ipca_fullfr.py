@@ -48,6 +48,7 @@ class IPCA_Params(PCA_Params):
     mode: str = None
     strategy: str = "ADI"
     ncomp_step: int = 1
+    ncomp_start: int = 1
     nit: int = 1
     thr: Union[float, str] = 0.
     thr_mode: str = 'STIM'
@@ -399,14 +400,14 @@ def ipca(*all_args: List, **all_kwargs: dict):
     nit_ori = algo_params.nit
 
     if algo_params.mode is not None:
-        final_ncomp = list(range(1, ncomp_tmp+1, algo_params.ncomp_step))
+        final_ncomp = list(range(algo_params.ncomp_start, ncomp_tmp+1, algo_params.ncomp_step))
         if algo_params.mode == 'Pairet18':
             algo_params.nit = ncomp_tmp
-            final_ncomp = list(range(1, ncomp_tmp+1, algo_params.ncomp_step))
+            final_ncomp = list(range(algo_params.ncomp_start, ncomp_tmp+1, algo_params.ncomp_step))
             algo_params.thr = 0
         elif algo_params.mode in ['Pairet21', 'Christiaens21']:
             final_ncomp = []
-            for npc in range(1, ncomp_tmp+1, algo_params.ncomp_step):
+            for npc in range(algo_params.ncomp_start, ncomp_tmp+1, algo_params.ncomp_step):
                 for ii in range(algo_params.nit):
                     final_ncomp.append(npc)
             algo_params.nit = len(final_ncomp)
@@ -480,7 +481,8 @@ def ipca(*all_args: List, **all_kwargs: dict):
     # 4.Loop, updating the reference cube before projection by subtracting the
     #   best disc estimate. This is done by providing sig_cube.
     cond_skip = False  # whether to skip an iteration (e.g. in incremental mode)
-    for it in Progressbar(range(1, algo_params.nit), desc="Iterating..."):
+    nbr_iterations = len(final_ncomp)
+    for it in Progressbar(range(1, nbr_iterations), desc="Iterating..."):
         if not cond_skip:
             # Uncomment here (and comment below) to do like IROLL
             # if smooth_ker[it] is not None:
