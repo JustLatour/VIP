@@ -790,7 +790,7 @@ def pca(*all_args: List, **all_kwargs: dict):
                         return frame
                 else:
                     if algo_params.full_output:
-                        return final_residuals_cube, pclist
+                        return final_residuals_cube, pclist, ifs_adi_frames
                     else:
                         return final_residuals_cube
                 
@@ -1187,7 +1187,17 @@ def _arsdi_pca(
                     reverse = True)[0:SDI_channels[0]], dtype = int)[:, 0]
         
     if SDI_channels[1] == -1:
-        resc_cube_ref_sdi = cube[Ind_Channels_Left[-1],:,:,:]
+        if n_sdi <= nz:
+            resc_cube_ref_sdi = cube[Ind_Channels_Left[-1],0:n_sdi,:,:]
+        else:
+            channels = int(np.ceil(n_sdi/nz))
+            leftover = n_sdi%nz
+            resc_cube_ref_sdi = np.zeros((0,newy,newx))
+            for c in range(1,channels):
+                resc_cube_ref_sdi = np.concatenate((resc_cube_ref_sdi, 
+                                            cube[Ind_Channels_Left[-c],:,:,:]))
+            resc_cube_ref_sdi = np.concatenate((resc_cube_ref_sdi, 
+                            cube[Ind_Channels_Left[-channels],0:leftover,:,:]))
     else:
         #Choose the most correlated frames amongst the channels considered
         #either choose frames in all the ones left, or a bit in all channels?
