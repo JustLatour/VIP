@@ -30,7 +30,7 @@ from ..config.paramenum import ALGO_KEY
 from ..config.utils_param import separate_kwargs_dict
 from ..config import Progressbar
 from ..psfsub import pca, PCA_Params
-from ..preproc import cube_derotate, cube_collapse
+from ..preproc import cube_derotate, cube_collapse, cube_detect_badfr_correlation
 from ..metrics import stim_map, inverse_stim_map
 from ..var import prepare_matrix, mask_circle, frame_filter_lowpass
 
@@ -49,6 +49,7 @@ class IPCA_Params(PCA_Params):
     strategy: str = "ADI"
     ncomp_step: int = 1
     ncomp_start: int = 1
+    crop_adi: bool = False
     nit: int = 1
     thr: Union[float, str] = 0.
     thr_mode: str = 'STIM'
@@ -352,6 +353,16 @@ def ipca(*all_args: List, **all_kwargs: dict):
     # force full_output
     pca_params['full_output'] = True
     pca_params['verbose'] = False  # too verbose otherwise
+    
+    if algo_params.strategy == 'ARDI':
+        if algo_params.crop_adi == True:
+            n_ref = algo_params.cube_ref.shape[0]
+            corr_values = cube_detect_badfr_correlation(algo_params.cube, 
+                    np.median(algo_params.cube, axis = 0), plot = False, 
+                    full_output = True, verbose = False)[2]
+            indices = np.argsort(corr_values)[::-1][0:n_ref]
+        else:
+            indices = np.arange(0 ,algo_params.cube.shape[0])
 
     # 1. Prepare/format additional parameters depending on chosen options
     mask_center_px = algo_params.mask_center_px  # None? what's better in pca?
@@ -373,7 +384,7 @@ def ipca(*all_args: List, **all_kwargs: dict):
         if algo_params.cube_ref is None:
             raise ValueError("cube_ref should be provided for RDI or RADI")
         if algo_params.strategy == 'ARDI' and algo_params.mask_rdi is None:
-            ref_cube = np.concatenate((algo_params.cube,
+            ref_cube = np.concatenate((algo_params.cube[indices],
                                        algo_params.cube_ref), axis=0)
         else:
             ref_cube = algo_params.cube_ref.copy()
@@ -482,6 +493,7 @@ def ipca(*all_args: List, **all_kwargs: dict):
     #   best disc estimate. This is done by providing sig_cube.
     cond_skip = False  # whether to skip an iteration (e.g. in incremental mode)
     nbr_iterations = len(final_ncomp)
+    
     for it in Progressbar(range(1, nbr_iterations), desc="Iterating..."):
         if not cond_skip:
             # Uncomment here (and comment below) to do like IROLL
@@ -509,7 +521,7 @@ def ipca(*all_args: List, **all_kwargs: dict):
                 sig_cube[np.where(sig_cube < algo_params.thr)] = 0
 
             if algo_params.strategy == 'ARDI':
-                ref_cube = np.concatenate((algo_params.cube-sig_cube,
+                ref_cube = np.concatenate((algo_params.cube[indices]-sig_cube[indices],
                                            algo_params.cube_ref), axis=0)
                 cube_ref_tmp = prepare_matrix(ref_cube,
                                               scaling=algo_params.scaling,

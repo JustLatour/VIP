@@ -1432,7 +1432,7 @@ def _project_subtract(
 
         if cube_ref is not None:
             if left_eigv:
-                matrix_ref = prepare_matrix(cube_sig, scaling, mask_center_px,
+                matrix_ref = prepare_matrix(cube_ref, scaling, mask_center_px,
                                             mode="fullfr", verbose=verbose,
                                             discard_mask_pix=True)
             else:
