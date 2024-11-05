@@ -2,7 +2,11 @@
 """
 Created on Sun Nov 12 12:16:20 2023
 
+<<<<<<< HEAD
 @author: Justin Latour
+=======
+@author: justin
+>>>>>>> ARSDIContr
 """
 
 import numpy as np
@@ -67,8 +71,11 @@ class PCA_ANNULAR_CORR_MULTI_EPOCH_Params(PCA_ANNULAR_CORR_Params):
 def Inherited_Params(algo_params):
     """
     Separate into two dictionnaries the arguments that were inherited and not inherited
+<<<<<<< HEAD
     
     If argument in both, it will put in the inherited dictionary
+=======
+>>>>>>> ARSDIContr
     """
     Attr_class = dir(algo_params)
     Attr_Parent_class = dir(algo_params.__class__.__bases__[0])
@@ -279,6 +286,7 @@ def pca_annular_multi_epoch(*all_args: list, **all_kwargs: dict):
             two indiced delimit the index of the start(included) and the 
             end(not included) of the first epoch, then the next two indices 
             do the same for the second epoch, etc.
+<<<<<<< HEAD
     
     delta_rot: 
         -can be an int, float or None and will then be considered the same
@@ -287,6 +295,8 @@ def pca_annular_multi_epoch(*all_args: list, **all_kwargs: dict):
         -can be a list, of the same length as the number of epochs. Defines
         explicitly the values of delta_rot for each epoch, and it can even be
         different for each annulus.
+=======
+>>>>>>> ARSDIContr
     """
     
     class_params, rot_options = separate_kwargs_dict(

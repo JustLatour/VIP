@@ -31,7 +31,7 @@ from ..psfsub.pca_local import *
 from ..psfsub.pca_local import PCA_ANNULAR_Params
 from ..psfsub.pca_multi_epoch import *
 
-from hciplot import plot_frames
+from hciplot import plot_frames, plot_cubes
 
 def contrast_optimized(
     cube,
@@ -314,7 +314,7 @@ def contrast_optimized(
             Indices[NEpochs-k-1] += 1
             for j in range(0, k, 1):
                 Indices[NEpochs-j-1] = 0
-    
+        
         
         n, y, x = array.shape
         psf_template = normalize_psf(
@@ -359,6 +359,7 @@ def contrast_optimized(
                 np.sin(np.deg2rad((br+d%nbranch) * angle_branch + theta))
             x = cx + rad_dist * \
                 np.cos(np.deg2rad((br+d%nbranch) * angle_branch + theta))
+
             fc_map = frame_inject_companion(
                 fc_map, psf_template, y, x, flux, imlib, interpolation
             )
@@ -568,6 +569,11 @@ def contr_dist(
         if nbranch > 1 and angular_range < 360:
             msg = "Only a single branch is allowed when working on a wedge"
             raise RuntimeError(msg)
+
+    # throughput
+    verbose_thru = False
+    if verbose == 2:
+        verbose_thru = True
         
     nproc = algo_dict.get("nproc", 1)
     imlib = algo_dict.get("imlib", "vip-fft")
@@ -633,6 +639,7 @@ def contr_dist(
     
     noise = np.array(noise_res)[:,0,0]
     mean_res = np.array(noise_res)[:,0,1]
+
     
     # We crop the PSF and check if PSF has been normalized (so that flux in
     # 1*FWHM aperture = 1) and fix if needed
@@ -5176,8 +5183,6 @@ def contrast_multi_epoch_walk3(
     return Optimal_comp, Optimal_comp_basis, Contrast_progress, flux_wanted, LastResult
 
 
-
-
 def noise_dist(array, distance, fwhm, wedge=(0, 360), verbose=False, debug=False):
     """
     distance is the distance at which noise level is evaluated
@@ -5230,6 +5235,7 @@ def noise_dist(array, distance, fwhm, wedge=(0, 360), verbose=False, debug=False
         noise_mean[i,0] = np.std(fluxes)
         noise_mean[i,1] = np.mean(fluxes)
 
+
     if debug:
         for j in range(xx.shape[0]):
             # Circle takes coordinates as (X,Y)
@@ -5246,6 +5252,7 @@ def noise_dist(array, distance, fwhm, wedge=(0, 360), verbose=False, debug=False
         print("Radius(px) = {}, Noise = {:.3f} ".format(rad, noise_dist))
 
     return noise_mean
+
 
 
 def apertureOne_flux(array, yc, xc, fwhm, ap_factor=1, mean=False, verbose=False):
