@@ -117,6 +117,9 @@ def ipca(*all_args: List, **all_kwargs: dict):
     ncomp_step: int, opt
         Incremental step for number of principal components - used when mode is
         not None.
+    ncomp_start: first value of ncomp used if mode is not None. Default is 1.
+    crop_adi: if set to True and mode is "ARDI", the number of ADI images used
+    will automatically be euqla to the number of RDI images
     nit: int, opt
         Number of iterations for the iterative PCA.
         - if mode is None:
