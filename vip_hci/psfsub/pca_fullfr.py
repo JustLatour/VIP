@@ -131,6 +131,7 @@ class PCA_Params:
     left_eigv: bool = False
     min_frames_pca: int = 10
     cube_sig: np.ndarray = None
+    mode: str = None
 
 
 def pca(*all_args: List, **all_kwargs: dict):
@@ -340,6 +341,8 @@ def pca(*all_args: List, **all_kwargs: dict):
         Cube with estimate of significant authentic signals. If provided, this
         will be subtracted before projecting considering the science cube as
         reference cube.
+    mode: default is None. If == 'ARDI', ARDI mode engaged, library of images
+        will be built from half RDI and half ADI
 
     Return
     -------
@@ -884,6 +887,7 @@ def _adi_rdi_pca(
     cube_sig=None,
     left_eigv=False,
     min_frames_pca=10,
+    mode=None,
     **rot_options,
 ):
     """Handle the ADI or ADI+RDI PCA post-processing."""
@@ -895,6 +899,16 @@ def _adi_rdi_pca(
         residuals_cube_,
     ) = (None for _ in range(5))
     # Full/Single ADI processing, incremental PCA
+    
+    if mode == 'ARDI':
+        n_ref = cube_ref.shape[0]
+        corr_values = cube_detect_badfr_correlation(cube, 
+                    np.median(cube, axis = 0), plot = False, 
+                    full_output = True, verbose = False)[2]
+        indices = np.argsort(corr_values)[::-1][0:n_ref]
+        
+        cube_ref = np.concatenate((cube[indices], cube_ref), axis=0)
+    
     if batch is not None:
         result = pca_incremental(
             cube,
