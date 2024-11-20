@@ -49,6 +49,7 @@ class IPCA_Params(PCA_Params):
     strategy: str = "ADI"
     ncomp_step: int = 1
     ncomp_start: int = 1
+    mask_ipca: np.ndarray = None
     crop_adi: bool = False
     nit: int = 1
     thr: Union[float, str] = 0.
@@ -118,8 +119,10 @@ def ipca(*all_args: List, **all_kwargs: dict):
         Incremental step for number of principal components - used when mode is
         not None.
     ncomp_start: first value of ncomp used if mode is not None. Default is 1.
+    mask_ipca: binary mask that signals where the IPCA is applied.
+        If None, IPCA is applied on the full-frame
     crop_adi: if set to True and mode is "ARDI", the number of ADI images used
-    will automatically be euqla to the number of RDI images
+        will automatically be euqla to the number of RDI images
     nit: int, opt
         Number of iterations for the iterative PCA.
         - if mode is None:
@@ -581,6 +584,10 @@ def ipca(*all_args: List, **all_kwargs: dict):
                 sig_mask = np.ones_like(frame)
                 sig_mask[np.where(frame < algo_params.thr)] = 0
                 nstim = sig_mask.copy()
+                
+            if algo_params.mask_ipca is not None:
+                sig_mask *= algo_params.mask_ipca
+                
             inv_sig_mask = np.ones_like(sig_mask)
             inv_sig_mask[np.where(sig_mask)] = 0
             if mask_center_px:
