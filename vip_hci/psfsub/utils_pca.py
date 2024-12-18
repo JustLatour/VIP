@@ -373,7 +373,8 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
         prev = pc
 
     cubeout = np.array((frlist))
-    cubeout = mask_circle(cubeout, mask_center_px)
+    if mask_center_px:
+        cubeout = mask_circle(cubeout, mask_center_px)
 
     # measuring the S/Ns for the given position
     if x is not None and y is not None and fwhm is not None:
