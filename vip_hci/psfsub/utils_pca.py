@@ -19,7 +19,8 @@ from .svd import svd_wrapper
 from ..preproc import cube_derotate, cube_collapse, check_pa_vector
 from ..config import timing, time_ini, check_array, get_available_memory
 from ..config.utils_conf import vip_figsize, vip_figdpi
-from ..var import frame_center, dist, prepare_matrix, reshape_matrix, get_circle
+from ..var import (frame_center, dist, prepare_matrix, 
+                   reshape_matrix, get_circle, mask_circle)
 
 
 def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
@@ -372,6 +373,7 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
         prev = pc
 
     cubeout = np.array((frlist))
+    cubeout = mask_circle(cubeout, mask_center_px)
 
     # measuring the S/Ns for the given position
     if x is not None and y is not None and fwhm is not None:
