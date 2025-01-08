@@ -462,6 +462,12 @@ def pool_map(nproc, fkt, *args, **kwargs):
     _generator = kwargs.get("_generator", False)  # not exposed in docstring
 
     args_r = [a.v if isinstance(a, FixedObj) else itt.repeat(a) for a in args]
+    array_sizes = np.array([a.nbytes if isinstance(a, np.ndarray) else 0 for a in args])
+    process_size = np.sum(array_sizes)
+    if process_size > 0:
+        nbr_large = np.sum(array_sizes > 50000)
+    else:
+        nbr_large = 0
     z = zip(itt.repeat(fkt), *args_r)
 
     if nproc == 1:
@@ -474,17 +480,22 @@ def pool_map(nproc, fkt, *args, **kwargs):
     else:
         # Check available start methods and pick accordingly (machine-dependent)
         avail_methods = multiprocessing.get_all_start_methods()
-        if 'fork' in avail_methods:
-            # faster when available
-            warnings.filterwarnings("error")  # allows to catch warning as error
-            try:
-                multiprocessing.set_start_method("fork", force=True)
-            except (DeprecationWarning, OSError):
-                multiprocessing.set_start_method("spawn", force=True)
-        elif 'forkserver' in avail_methods:
-            multiprocessing.set_start_method("forkserver", force=True)
-        else:
+        
+        if nbr_large >= 2 or process_size > 1200000:
             multiprocessing.set_start_method("spawn", force=True)
+        else:
+            if 'fork' in avail_methods:
+                #faster when available
+                warnings.filterwarnings("error")  # allows to catch warning as error
+                try:
+                    multiprocessing.set_start_method("fork", force=True)
+                except (DeprecationWarning, OSError):
+                    multiprocessing.set_start_method("spawn", force=True)
+            elif 'forkserver' in avail_methods:
+                multiprocessing.set_start_method("forkserver", force=True)
+            else:
+                multiprocessing.set_start_method("spawn", force=True)
+
         warnings.resetwarnings()  # reset warning behaviour to default
         from multiprocessing import Pool
 
@@ -492,6 +503,7 @@ def pool_map(nproc, fkt, *args, **kwargs):
         os.environ["MKL_NUM_THREADS"] = "1"
         os.environ["NUMEXPR_NUM_THREADS"] = "1"
         os.environ["OMP_NUM_THREADS"] = "1"
+    
 
         if verbose and msg is not None:
             print("{} with {} processes".format(msg, nproc))

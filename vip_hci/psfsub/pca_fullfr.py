@@ -1174,8 +1174,10 @@ def _arsdi_pca(
         n_sdi = Ref_Lib_Numbers[2]
         Percentile_adi = Percentile = 100*(nz - n_adi)/nz
         Percentile_rdi = 100*(z_r - n_rdi)/z_r
-        if n_adi == nz or n_adi == 0:
+        if n_adi == nz:
             resc_cube_ref_adi = resc_cube
+        elif n_adi == 0:
+            resc_cube_ref_adi = np.zeros((0,Crop,Crop))
         else:
             Ind_ADI_Left = cube_detect_badfr_correlation(resc_cube, 
                     RefFrame, verbose = False, crop_size = crop_size, 

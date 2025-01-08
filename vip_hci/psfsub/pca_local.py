@@ -1478,7 +1478,8 @@ def do_pca_patch(
     done on the annuli beyong 10*FWHM radius and the goal is to keep
     min(num_frames/2, 200) in the library.
 
-    """
+    # """
+    
     if pa_threshold != 0:
         # if ann_center > fwhm*10:
         indices_left = _find_indices_adi2(angle_list, frame, pa_threshold,
