@@ -757,7 +757,7 @@ def pca(*all_args: List, **all_kwargs: dict):
             else:
                 # PCA grid
                 if isinstance(algo_params.ncomp, (tuple, list)):
-                    final_residuals_cube, pclist = res_pca
+                    final_residuals_cube, pclist, residuals_cube = res_pca
                 # full-frame standard PCA
                 else:
                     pcs, recon, residuals_cube, residuals_cube_, frame = res_pca
@@ -833,7 +833,7 @@ def pca(*all_args: List, **all_kwargs: dict):
             else:
                 # PCA grid
                 if isinstance(algo_params.ncomp, (tuple, list)):
-                    final_res = [final_residuals_cube, pclist]
+                    final_res = [final_residuals_cube, pclist, residuals_cube]
                 # full-frame standard PCA or ADI+RDI
                 else:
                     final_res = [frame, pcs, recon, residuals_cube,
