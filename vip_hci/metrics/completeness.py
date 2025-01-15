@@ -340,6 +340,10 @@ def _stim_fc(
     
     indc = disk((sigposy, sigposx), fwhm/2)
     
+    indc0 = disk((sigposy, sigposx), fwhm/4)
+    indc1 = disk((sigposy, sigposx), fwhm/2)
+    indc2 = disk((sigposy, sigposx), fwhm/1.5)
+    
     
     for i,n in enumerate(ncomp):
         stim_map_fc[i] = stim_map(residuals_)/stim_thresh[i]
@@ -351,15 +355,30 @@ def _stim_fc(
                 stim_map_fc[i] *= mask
 
         #max_target = np.nan_to_num(snrmap_fin[indc[0], indc[1]]).max()
-        mean_target = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]]).mean()
-        stim_map_fc[i][indc[0], indc[1]] = 0
-        max_map = np.nan_to_num(stim_map_fc[i]).max()
+        #mean_target = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]]).mean()
+        #stim_map_fc[i][indc[0], indc[1]] = 0
+        #max_map = np.nan_to_num(stim_map_fc[i]).max()
+        
+        mean_target0 = np.nan_to_num(stim_map_fc[i][indc0[0], indc0[1]]).mean()
+        mean_target1 = np.nan_to_num(stim_map_fc[i][indc1[0], indc1[1]]).mean()
+        mean_target2 = np.nan_to_num(stim_map_fc[i][indc2[0], indc2[1]]).mean()
+        
         
         #if max_target < 1:
         #    max_target = 0
 
         #result[i] = max_target-max_map
-        result[i] = mean_target - 1
+        #result[i] = mean_target - 1
+        result[i] = mean_target1 - 1
+        
+        if mean_target1 > mean_target0:
+            result[i] = -1
+        if mean_target2 > mean_target1:
+            result[i] = -1
+        if mean_target2 > mean_target0:
+            result[i] = -1
+            
+        #print(mean_target0, mean_target1, mean_target2)
 
     if b == 2:
         from hciplot import plot_frames
@@ -1210,10 +1229,15 @@ def completeness_curve_stim(
             val_detect = []
             val_non_detect = []
             
+            cond = level_bound[0] is None or level_bound[1] is None
+            if verbose and not cond:
+                print('Current contrast bounds: ', level_bound)
+            
             res = np.zeros((n_fc,2))
             for b in range(0,n_fc):
                 res[b] = _stim_fc(a,b,level, n_fc, cube, psf, angle_list, 
                         fwhm, algo, algo_dict, stim_threshold, mask, starphot)
+                
                 
                 if res[b][0] <= 0:
                     pos_non_detect.append(res[b][1])
@@ -1222,7 +1246,7 @@ def completeness_curve_stim(
                     if len(pos_non_detect) > max_missed:
                         level_bound[0] = level
                         if level_bound[0] == 1:
-                            print('no contrast lower than 1 found')
+                            print('No contrast lower than 1 found')
                             ii = max_iter
                             break
                         if level_bound[1] is None:
@@ -1235,8 +1259,6 @@ def completeness_curve_stim(
                             prev = level
                             level = np.mean(level_bound)
                             stop_thr = level/precision
-                        
-                        print('gain ', b, ' ', level)
                         break
                 else:
                     pos_detect.append(res[b][1])
@@ -1252,8 +1274,6 @@ def completeness_curve_stim(
                             prev = level
                             level = np.mean(level_bound)
                             stop_thr = level/precision
-                            
-                        print('gain ', b, ' ', level)
                         break
             
             if len(pos_detect) == nbr_to_detect:
@@ -1265,15 +1285,13 @@ def completeness_curve_stim(
                 else:
                     level = np.mean(level_bound)
                 stop_thr = level/precision
-                
             
             cond = level_bound[0] is None or level_bound[1] is None
-            print(cond)
             if not cond:
                 if np.abs(prev - level) < stop_thr:
-                    print('precision reached')
+                    if verbose:
+                        print('Precision reached: ', level_bound)
                     break
-                print('+1')
                 ii += 1
 
 
@@ -1281,7 +1299,11 @@ def completeness_curve_stim(
         completeness_curve[k,1:] = level_bound
 
         if ii >= max_iter:
-            print('Could not find suitable contrast')
+            if level_bound[0] == 1:
+                print('Check that there is not too much self-subtraction')
+            else:
+                print('Could not find contrast for the requested precision within \
+                  the amount of iterations allocated') 
 
 
     # plotting
