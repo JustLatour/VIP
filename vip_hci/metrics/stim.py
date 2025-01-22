@@ -37,7 +37,8 @@ def stim_map(cube_der):
 
     """
     t, n, _ = cube_der.shape
-    mu = np.mean(cube_der, axis=0)
+    this_mean = np.mean(cube_der, axis=0)
+    mu = this_mean#**2
     sigma = np.sqrt(np.var(cube_der, axis=0))
     detection_map = np.divide(mu, sigma, out=np.zeros_like(mu),
                               where=sigma != 0)

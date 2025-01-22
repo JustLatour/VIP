@@ -228,7 +228,6 @@ def _stim_fc(
     algo,
     algo_dict,
     stim_thresh,
-    mask=None,
     starphot=1,
 ):
     cubefc = cube_inject_companions(
@@ -340,19 +339,13 @@ def _stim_fc(
     
     indc = disk((sigposy, sigposx), fwhm/2)
     
-    indc0 = disk((sigposy, sigposx), fwhm/4)
+    indc0 = disk((sigposy, sigposx), fwhm/3)
     indc1 = disk((sigposy, sigposx), fwhm/2)
     indc2 = disk((sigposy, sigposx), fwhm/1.5)
     
     
     for i,n in enumerate(ncomp):
-        stim_map_fc[i] = stim_map(residuals_)/stim_thresh[i]
-        
-        if mask is not None:
-            if np.isscalar(mask):
-                stim_map_fc[i] = mask_circle(stim_map_fc[i], mask)
-            else:
-                stim_map_fc[i] *= mask
+        stim_map_fc[i] = stim_map(residuals_)/stim_thresh[i,0]
 
         #max_target = np.nan_to_num(snrmap_fin[indc[0], indc[1]]).max()
         #mean_target = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]]).mean()
@@ -360,16 +353,17 @@ def _stim_fc(
         #max_map = np.nan_to_num(stim_map_fc[i]).max()
         
         mean_target0 = np.nan_to_num(stim_map_fc[i][indc0[0], indc0[1]]).mean()
+        max_target = np.nan_to_num(stim_map_fc[i][indc1[0], indc1[1]]).max()
         mean_target1 = np.nan_to_num(stim_map_fc[i][indc1[0], indc1[1]]).mean()
         mean_target2 = np.nan_to_num(stim_map_fc[i][indc2[0], indc2[1]]).mean()
         
-        
-        #if max_target < 1:
-        #    max_target = 0
 
         #result[i] = max_target-max_map
         #result[i] = mean_target - 1
-        result[i] = mean_target1 - 1
+        result[i] = max_target - 1 - stim_thresh[i,2]/stim_thresh[i,1]
+        
+        if mean_target1 < 1:
+            result[i] = 0
         
         if mean_target1 > mean_target0:
             result[i] = -1
@@ -1171,7 +1165,7 @@ def completeness_curve_stim(
     
         nncomp = len(ncomp)
         
-        stim_threshold = np.zeros(nncomp)
+        stim_threshold = np.zeros((nncomp,3))
         
         if nncomp == 1:
             residuals = residuals.reshape(1,residuals.shape[0], 
@@ -1185,7 +1179,14 @@ def completeness_curve_stim(
                     this_inverse = mask_circle(this_inverse, mask)
                 else:
                     this_inverse *= mask
-            stim_threshold[i] = np.nanmax(this_inverse)
+                    
+                pxl_mask = np.where((mask == 1) & (this_inverse > 0))
+            else:
+                pxl_mask = np.where(this_inverse > 0)
+
+            stim_threshold[i,0] = np.nanmax(this_inverse)
+            stim_threshold[i,1] = np.mean(this_inverse[pxl_mask])
+            stim_threshold[i,2] = np.std(this_inverse[pxl_mask])
 
 
     completeness_curve = np.zeros((len(an_dist), 3))
@@ -1236,7 +1237,7 @@ def completeness_curve_stim(
             res = np.zeros((n_fc,2))
             for b in range(0,n_fc):
                 res[b] = _stim_fc(a,b,level, n_fc, cube, psf, angle_list, 
-                        fwhm, algo, algo_dict, stim_threshold, mask, starphot)
+                        fwhm, algo, algo_dict, stim_threshold, starphot)
                 
                 
                 if res[b][0] <= 0:
