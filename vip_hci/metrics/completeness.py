@@ -340,12 +340,9 @@ def _stim_fc(
         #result[i] = max_target-max_map
         #result[i] = mean_target - 1
         result[i] = max_target - 1 - stim_thresh[i,2]/stim_thresh[i,1]
-<<<<<<< HEAD
-        
+
         if mean_target1 < 1:
             result[i] = 0
-=======
->>>>>>> MacDev3
         
         #if mean_target1 < 1:
         #    result[i] = -1
@@ -1158,7 +1155,6 @@ def completeness_curve_stim(
                     this_inverse = mask_circle(this_inverse, mask)
                 else:
                     this_inverse *= mask
-<<<<<<< HEAD
                     
                 pxl_mask = np.where((mask == 1) & (this_inverse > 0))
             else:
@@ -1167,17 +1163,7 @@ def completeness_curve_stim(
             stim_threshold[i,0] = np.nanmax(this_inverse)
             stim_threshold[i,1] = np.mean(this_inverse[pxl_mask])
             stim_threshold[i,2] = np.std(this_inverse[pxl_mask])
-=======
-                
-                pxl_mask = np.where((mask == 1) & (this_inverse > 0))
-            else:
-                pxl_mask = np.where(this_inverse > 0)
-                
-            stim_threshold[i,0] = np.nanmax(this_inverse)
-            stim_threshold[i,1] = np.mean(this_inverse[pxl_mask])
-            stim_threshold[i,2] = np.std(this_inverse[pxl_mask])
-            
->>>>>>> MacDev3
+
 
 
     completeness_curve = np.zeros((len(an_dist), 3))
