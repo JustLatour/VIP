@@ -286,29 +286,8 @@ def _stim_fc(
     if "fwhm" in argl:
         algo_dict["fwhm"] = fwhm_med
     if "annular" in algo_name:
-        if algo_dict.get("asize") is None:
-            annulus_width = int(np.ceil(fwhm))
-        elif isinstance(algo_dict.get("asize"), (int, float)):
-            annulus_width = algo_dict.get("asize")
-
-        if a > 2 * annulus_width:
-            n_annuli = 5
-            radius_int = (a // annulus_width - 2) * annulus_width
-        else:
-            n_annuli = 4
-            radius_int = (a // annulus_width - 1) * annulus_width
-        if 2 * (radius_int + n_annuli * annulus_width) < cube.shape[-1]:
-            cubefc_crop = cube_crop_frames(
-                cubefc,
-                int(2 * (radius_int + n_annuli * annulus_width)),
-                xy=(cx, cy),
-                verbose=False,
-            )
-        else:
-            cubefc_crop = cubefc
-
         output_temp = algo(
-            cube=cubefc_crop, angle_list=angle_list, radius_int=radius_int, 
+            cube=cubefc, angle_list=angle_list,
             full_output = True,
             **algo_dict
         )
@@ -361,16 +340,22 @@ def _stim_fc(
         #result[i] = max_target-max_map
         #result[i] = mean_target - 1
         result[i] = max_target - 1 - stim_thresh[i,2]/stim_thresh[i,1]
+<<<<<<< HEAD
         
         if mean_target1 < 1:
             result[i] = 0
+=======
+>>>>>>> MacDev3
         
-        if mean_target1 > mean_target0:
-            result[i] = -1
-        if mean_target2 > mean_target1:
-            result[i] = -1
-        if mean_target2 > mean_target0:
-            result[i] = -1
+        #if mean_target1 < 1:
+        #    result[i] = -1
+        
+        #if mean_target1 > mean_target0:
+        #    result[i] = -1
+        #if mean_target2 > mean_target1:
+        #    result[i] = -1
+        #if mean_target2 > mean_target0:
+        #    result[i] = -1
             
         #print(mean_target0, mean_target1, mean_target2)
 
@@ -1066,13 +1051,7 @@ def completeness_curve_stim(
         fwhm_med = fwhm
 
     if an_dist is None:
-        an_dist = np.array(
-            range(2 * round(fwhm_med),
-                  int(cube.shape[-1] // 2 - 2 * fwhm_med), 5)
-        )
-        print("an_dist not provided, the following list will be used:", an_dist)
-    elif an_dist[-1] > cube.shape[-1] // 2 - 2 * fwhm_med:
-        raise TypeError("Please decrease the maximum annular distance")
+        raise TypeError("Please decfine the distances")
 
     if ini_contrast is None:
         print("Contrast curve not provided => will be computed first...")
@@ -1179,6 +1158,7 @@ def completeness_curve_stim(
                     this_inverse = mask_circle(this_inverse, mask)
                 else:
                     this_inverse *= mask
+<<<<<<< HEAD
                     
                 pxl_mask = np.where((mask == 1) & (this_inverse > 0))
             else:
@@ -1187,6 +1167,17 @@ def completeness_curve_stim(
             stim_threshold[i,0] = np.nanmax(this_inverse)
             stim_threshold[i,1] = np.mean(this_inverse[pxl_mask])
             stim_threshold[i,2] = np.std(this_inverse[pxl_mask])
+=======
+                
+                pxl_mask = np.where((mask == 1) & (this_inverse > 0))
+            else:
+                pxl_mask = np.where(this_inverse > 0)
+                
+            stim_threshold[i,0] = np.nanmax(this_inverse)
+            stim_threshold[i,1] = np.mean(this_inverse[pxl_mask])
+            stim_threshold[i,2] = np.std(this_inverse[pxl_mask])
+            
+>>>>>>> MacDev3
 
 
     completeness_curve = np.zeros((len(an_dist), 3))
@@ -1617,7 +1608,6 @@ def completeness_curve_stim_pca(
                     this_inverse *= mask
             stim_threshold[i] = np.nanmax(this_inverse)
 
-
     completeness_curve = np.zeros((len(an_dist), 3))
 
     # We crop the PSF and check if PSF has been normalized (so that flux in
@@ -1669,7 +1659,7 @@ def completeness_curve_stim_pca(
                 this_level = flux_ncomp[0]
                 
                 res[b] = _stim_fc(a,b,this_level, n_fc, cube, psf, angle_list, 
-                        fwhm, algo, this_algo_dict, stim_threshold, mask, starphot)
+                        fwhm, algo, this_algo_dict, stim_threshold, starphot)
                 
                 if res[b][0] <= 0:
                     pos_non_detect.append(res[b][1])

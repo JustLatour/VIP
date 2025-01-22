@@ -757,8 +757,9 @@ def pca(*all_args: List, **all_kwargs: dict):
             else:
                 # PCA grid
                 if isinstance(algo_params.ncomp, (tuple, list)):
-                    final_residuals_cube, pclist = res_pca
+                    final_residuals_cube, pclist, residuals_cube, residuals_cube_ = res_pca
                 # full-frame standard PCA
+                    same_output = 0
                 else:
                     pcs, recon, residuals_cube, residuals_cube_, frame = res_pca
         # full-frame incremental PCA
@@ -833,7 +834,7 @@ def pca(*all_args: List, **all_kwargs: dict):
             else:
                 # PCA grid
                 if isinstance(algo_params.ncomp, (tuple, list)):
-                    final_res = [final_residuals_cube, pclist]
+                    final_res = [final_residuals_cube, pclist, same_output, residuals_cube, residuals_cube_]
                 # full-frame standard PCA or ADI+RDI
                 else:
                     final_res = [frame, pcs, recon, residuals_cube,
@@ -1174,8 +1175,10 @@ def _arsdi_pca(
         n_sdi = Ref_Lib_Numbers[2]
         Percentile_adi = Percentile = 100*(nz - n_adi)/nz
         Percentile_rdi = 100*(z_r - n_rdi)/z_r
-        if n_adi == nz or n_adi == 0:
+        if n_adi == nz:
             resc_cube_ref_adi = resc_cube
+        elif n_adi == 0:
+            resc_cube_ref_adi = np.zeros((0,Crop,Crop))
         else:
             Ind_ADI_Left = cube_detect_badfr_correlation(resc_cube, 
                     RefFrame, verbose = False, crop_size = crop_size, 

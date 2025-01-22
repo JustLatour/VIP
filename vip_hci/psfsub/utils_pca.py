@@ -229,7 +229,7 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
         residuals_res_der = cube_derotate(residuals_reshaped, angle_list,
                                           **rot_options)
         res_frame = cube_collapse(residuals_res_der, mode=collapse, w=weights)
-        return res_frame, residuals
+        return res_frame, residuals, residuals_res_der
         #return res_frame
 
     def truncate_svd_get_finframe_ann(matrix, indices, angle_list, ncomp, V):
@@ -285,7 +285,7 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
 
     if start_time is None:
         start_time = time_ini(verbose)
-    n = cube.shape[0]
+    n,ny,nx = cube.shape
 
     if source_xy is not None:
         if fwhm is None:
@@ -351,11 +351,13 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
     fluxlist = []
     frlist = []
     residuals = np.copy(matrix)
+    res_cube = np.zeros((len(pclist), n, ny, nx))
+    res_cube_ = np.zeros((len(pclist), n, ny, nx))
     prev = 0
-    for pc in pclist:
+    for i,pc in enumerate(pclist):
         if mode == 'fullfr':
             #frame = truncate_svd_get_finframe(matrix, angle_list, pc, V)
-            frame, residuals = truncate_svd_get_finframe(matrix, residuals, angle_list, (prev,pc), V)
+            frame, residuals, residuals_ = truncate_svd_get_finframe(matrix, residuals, angle_list, (prev,pc), V)
         elif mode == 'annular':
             frame = truncate_svd_get_finframe_ann(matrix, annind,
                                                   angle_list, pc, V)
@@ -370,6 +372,8 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
             fluxlist.append(flux)
 
         frlist.append(frame)
+        res_cube[i] = residuals.reshape((n,ny,nx))
+        res_cube_[i] = residuals_
         prev = pc
 
     cubeout = np.array((frlist))
@@ -432,7 +436,7 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
         timing(start_time)
 
     if full_output:
-        return cubeout, pclist
+        return cubeout, pclist, res_cube, res_cube_
     else:
         return cubeout
 
