@@ -648,7 +648,7 @@ def frame_deconvolution(array, psf, n_it=30):
     min_I = np.amin(array)
     drange = max_I-min_I
 
-    deconv = richardson_lucy((array-min_I)/drange, psf, iterations=n_it)
+    deconv = richardson_lucy((array-min_I)/drange, psf, num_iter=n_it)
     deconv *= drange
     deconv += min_I
 

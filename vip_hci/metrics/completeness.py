@@ -331,18 +331,22 @@ def _stim_fc(
         #stim_map_fc[i][indc[0], indc[1]] = 0
         #max_map = np.nan_to_num(stim_map_fc[i]).max()
         
-        mean_target0 = np.nan_to_num(stim_map_fc[i][indc0[0], indc0[1]]).mean()
-        max_target = np.nan_to_num(stim_map_fc[i][indc1[0], indc1[1]]).max()
-        mean_target1 = np.nan_to_num(stim_map_fc[i][indc1[0], indc1[1]]).mean()
-        mean_target2 = np.nan_to_num(stim_map_fc[i][indc2[0], indc2[1]]).mean()
+        #mean_target0 = np.nan_to_num(stim_map_fc[i][indc0[0], indc0[1]]).mean()
+        #max_target = np.nan_to_num(stim_map_fc[i][indc1[0], indc1[1]]).max()
+        #mean_target1 = np.nan_to_num(stim_map_fc[i][indc1[0], indc1[1]]).mean()
+        #mean_target2 = np.nan_to_num(stim_map_fc[i][indc2[0], indc2[1]]).mean()
+        
+        pxl_values = np.nan_to_num(stim_map_fc[i][indc1[0], indc1[1]])
+        these_indices = np.where(pxl_values>0)
+        if len(these_indices[0]) <= 1:
+            result[i] = 0
+        else:
+            this_mean = np.mean(pxl_values[these_indices])
+            result[i] = this_mean - stim_thresh[i,3]
         
 
         #result[i] = max_target-max_map
         #result[i] = mean_target - 1
-        result[i] = max_target - 1 - stim_thresh[i,2]/stim_thresh[i,1]
-
-        if mean_target1 < 1:
-            result[i] = 0
         
         #if mean_target1 < 1:
         #    result[i] = -1
@@ -917,6 +921,7 @@ def completeness_curve_stim(
     pxscale=0.1,
     n_fc=20,
     completeness=0.95,
+    sigma=5,
     snr_approximation=True,
     max_iter=20,
     precision=10,
@@ -1141,7 +1146,7 @@ def completeness_curve_stim(
     
         nncomp = len(ncomp)
         
-        stim_threshold = np.zeros((nncomp,3))
+        stim_threshold = np.zeros((nncomp,4))
         
         if nncomp == 1:
             residuals = residuals.reshape(1,residuals.shape[0], 
@@ -1163,6 +1168,7 @@ def completeness_curve_stim(
             stim_threshold[i,0] = np.nanmax(this_inverse)
             stim_threshold[i,1] = np.mean(this_inverse[pxl_mask])
             stim_threshold[i,2] = np.std(this_inverse[pxl_mask])
+            stim_threshold[i,3] = (stim_threshold[i,1]+sigma*stim_threshold[i,2])/stim_threshold[i,0]
 
 
 
