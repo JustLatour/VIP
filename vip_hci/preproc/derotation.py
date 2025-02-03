@@ -306,7 +306,7 @@ def frame_rotate(array, angle, imlib='vip-fft', interpolation='lanczos4',
 
     if edge_blend != '' or imlib == 'vip-fft':
         array_out = array_out[y0:y1, x0:x1]  # remove padding
-        array_out[mask_ori] = mask_val      # mask again original masked values
+        #array_out[mask_ori] = mask_val      # mask again original masked values
 
     return array_out
 
