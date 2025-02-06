@@ -25,7 +25,7 @@ from ..var import (frame_center, dist, prepare_matrix,
 
 def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
              cube_ref=None, mode='fullfr', annulus_width=20, svd_mode='lapack',
-             scaling=None, mask_center_px=None, fmerit='mean',
+             scaling=None, mask_center_px=None, fmerit='mean', imlib2='vip-fft',
              collapse='median', ifs_collapse_range='all', verbose=True,
              full_output=False, debug=False, plot=True, save_plot=None,
              start_time=None, scale_list=None, initial_4dshape=None,
@@ -190,25 +190,29 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
     """
     from ..metrics import snr, frame_report
 
-    #def truncate_svd_get_finframe(matrix, angle_list, ncomp, V):
-    def truncate_svd_get_finframe(matrix, residuals, angle_list, ncomp, V):
+    def truncate_svd_get_finframe(matrix, angle_list, ncomp, V):
         """ Projection, subtraction, derotation plus combination in one frame.
         Only for full-frame"""
-        #transformed = np.dot(V[:ncomp], matrix.T)
-        #reconstructed = np.dot(transformed.T, V[:ncomp])
-        #residuals = matrix - reconstructed
-        transformed = np.dot(V[ncomp[0]:ncomp[1]], matrix.T)
-        reconstructed = np.dot(transformed.T, V[ncomp[0]:ncomp[1]])
-        residuals = residuals - reconstructed
+        transformed = np.dot(V[:ncomp], matrix.T)
+        reconstructed = np.dot(transformed.T, V[:ncomp])
+        residuals = matrix - reconstructed
         frsize = int(np.sqrt(matrix.shape[1]))  # only for square frames
         residuals_res = reshape_matrix(residuals, frsize, frsize)
 
         # For the case of ADI+mSDI data (assuming crop_ifs=True), we descale
         # and collapse each spectral residuals cube
         if scale_list is not None and initial_4dshape is not None:
-            print("Descaling the spectral channels and obtaining a final frame")
             z, n_adi, y_in, x_in = initial_4dshape
+            ARSDI_channel = False
+            if (len(scale_list) == n_adi) and (z == 1):
+                ARSDI_channel = True
+            else:
+                print("Descaling the spectral channels and obtaining a final frame")
             residuals_reshaped = np.zeros((n_adi, y_in, y_in))
+            
+            if ARSDI_channel:
+                z = n_adi
+                n_adi = 1
 
             if ifs_collapse_range == 'all':
                 idx_ini = 0
@@ -219,18 +223,19 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
 
             for i in range(n_adi):
                 frame_i = scwave(residuals_res[i*z+idx_ini:i*z+idx_fin, :, :],
-                                 scale_list[idx_ini:idx_fin], full_output=False,
-                                 inverse=True, y_in=y_in, x_in=x_in,
+                                 scale_list[idx_ini:idx_fin], full_output=ARSDI_channel,
+                                 inverse=True, y_in=y_in, x_in=x_in, imlib=imlib2,
                                  collapse=collapse)
-                residuals_reshaped[i] = frame_i
-            return residuals_reshaped
+                if ARSDI_channel:
+                    residuals_reshaped = frame_i[0]
+                else:
+                    residuals_reshaped[i] = frame_i
         else:
             residuals_reshaped = residuals_res
 
         residuals_res_der = cube_derotate(residuals_reshaped, angle_list,
                                           **rot_options)
         res_frame = cube_collapse(residuals_res_der, mode=collapse, w=weights)
-            
         return res_frame
 
     def truncate_svd_get_finframe_ann(matrix, indices, angle_list, ncomp, V):
@@ -286,7 +291,7 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
 
     if start_time is None:
         start_time = time_ini(verbose)
-    n,ny,nx = cube.shape
+    n = cube.shape[0]
 
     if source_xy is not None:
         if fwhm is None:
@@ -351,12 +356,9 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
     snrlist = []
     fluxlist = []
     frlist = []
-    residuals = np.copy(matrix)
-    prev = 0
-    for i,pc in enumerate(pclist):
+    for pc in pclist:
         if mode == 'fullfr':
-            #frame = truncate_svd_get_finframe(matrix, angle_list, pc, V)
-            frame = truncate_svd_get_finframe(matrix, residuals, angle_list, (prev,pc), V)
+            frame = truncate_svd_get_finframe(matrix, angle_list, pc, V)
         elif mode == 'annular':
             frame = truncate_svd_get_finframe_ann(matrix, annind,
                                                   angle_list, pc, V)
@@ -371,11 +373,8 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
             fluxlist.append(flux)
 
         frlist.append(frame)
-        prev = pc
 
     cubeout = np.array((frlist))
-    if mask_center_px:
-        cubeout = mask_circle(cubeout, mask_center_px)
 
     # measuring the S/Ns for the given position
     if x is not None and y is not None and fwhm is not None:

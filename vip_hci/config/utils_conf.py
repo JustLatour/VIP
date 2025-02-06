@@ -494,7 +494,6 @@ def pool_map(nproc, fkt, *args, **kwargs):
         os.environ["MKL_NUM_THREADS"] = "1"
         os.environ["NUMEXPR_NUM_THREADS"] = "1"
         os.environ["OMP_NUM_THREADS"] = "1"
-    
 
         if verbose and msg is not None:
             print("{} with {} processes".format(msg, nproc))

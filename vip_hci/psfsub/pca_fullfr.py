@@ -564,10 +564,10 @@ def pca(*all_args: List, **all_kwargs: dict):
                     ifs_adi_frames[ch] = res_pca[-1]
                 else:
                     res = np.array(res_pca[0])
-                    res = scwave(res, np.array([algo_params.scale_list[ch]] * nnpc), 
-                        inverse = True, imlib = algo_params.imlib2, 
-                        interpolation = algo_params.interpolation, 
-                        x_in = nx, y_in = ny)[0]
+                    #res = scwave(res, np.array([algo_params.scale_list[ch]] * nnpc), 
+                    #    inverse = True, imlib = algo_params.imlib2, 
+                    #    interpolation = algo_params.interpolation, 
+                    #    x_in = nx, y_in = ny)[0]
                     if algo_params.mask_center_px:
                         res = mask_circle(res, algo_params.mask_center_px)
                     ifs_adi_frames[ch,: ,: ,:] = res
@@ -1144,7 +1144,7 @@ def _arsdi_pca(
                                                       verbose = False)
     
     if fwhm is not None:
-        crop_size = int(np.min((8*np.median([fwhm]),ny)))
+        crop_size = int(np.min((8*np.median([fwhm]),ny-2)))
     else:
         crop_size = int(resc_cube.shape[2]/4)
 
@@ -1354,8 +1354,6 @@ def _arsdi_pca_channel(
                 inverse = True, imlib = imlib2, interpolation = interpolation,
                 x_in = xy_in, y_in = xy_in)[0]
         
-        if mask_center_px:
-            residuals_cube = mask_circle(residuals_cube, mask_center_px)
             
         residuals_cube_ = cube_derotate(
             residuals_cube,
@@ -1365,6 +1363,9 @@ def _arsdi_pca_channel(
             interpolation=interpolation,
             **rot_options,
         )
+    
+        if mask_center_px:
+            residuals_cube_ = mask_circle(residuals_cube_, mask_center_px)
         
         frame = cube_collapse(residuals_cube_, mode=collapse, w=weights)
         
@@ -1389,6 +1390,8 @@ def _arsdi_pca_channel(
             fwhm,
             range_pcs=ncomp,
             source_xy=None,
+            scale_list=np.array([scale_factor] * z),
+            initial_4dshape=(1,cube.shape[0], xy_in, xy_in),
             cube_ref=cube_ref_arsdi,
             mode="fullfr",
             svd_mode=svd_mode,
@@ -1404,6 +1407,7 @@ def _arsdi_pca_channel(
             weights=weights,
             nproc=nproc,
             imlib=imlib,
+            imlib2=imlib2,
             interpolation=interpolation,
             **rot_options,
         )
@@ -1538,6 +1542,7 @@ def _adimsdi_singlepca(
         if verbose:
             print("De-rotating and combining residuals")
             timing(start_time)
+        print(resadi_cube.shape)
         der_res = cube_derotate(
             resadi_cube,
             angle_list,
