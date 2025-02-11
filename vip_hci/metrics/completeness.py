@@ -50,6 +50,56 @@ from ..preproc import cube_crop_frames
 from ..var import get_annulus_segments, frame_center, mask_circle
 
 
+from scipy import signal
+
+def masked_gaussian_convolution(image, mask, fwhm):
+    """
+    Applies a Gaussian convolution to the image only within the masked region.
+    
+    Parameters:
+    image : 2D numpy array
+        Input image to be convolved.
+    mask : 2D boolean numpy array
+        Mask indicating the region to convolve (True where convolution is applied).
+    sigma : float
+        Standard deviation of the Gaussian kernel.
+        
+    Returns:
+    2D numpy array
+        Convolved image with the same shape as the input, where only the masked region is convolved.
+    """
+    if mask is None:
+        mask = np.ones_like(image)
+    mask = np.array(mask, dtype = bool)
+    
+    # Create Gaussian kernel
+    sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
+    kernel_size = 2 * int(3 * sigma) + 1
+    x = np.linspace(-3*sigma, 3*sigma, kernel_size)
+    y = x[:, np.newaxis]
+    kernel = np.exp(-(x**2 + y.T**2) / (2 * sigma**2))
+    kernel = kernel / kernel.sum()  # Normalize the kernel
+    
+    # Compute numerator: convolution of (image * mask) with kernel
+    numerator = signal.convolve2d(image * mask, kernel, mode='same', boundary='symm')
+    
+    # Compute denominator: convolution of mask with kernel
+    denominator = signal.convolve2d(mask.astype(float), kernel, mode='same', boundary='symm')
+    
+    # Avoid division by zero by setting a small epsilon where denominator is zero
+    eps = 1e-6
+    denominator[denominator == 0] = eps
+    
+    # Compute the normalized convolution result for valid regions
+    convolved_region = numerator / denominator
+    
+    # Apply the mask to retain only the convolved region
+    result = image.copy()
+    result[mask] = convolved_region[mask]
+    
+    return result
+
+
 def _estimate_snr_fc(
     a,
     b,
@@ -228,6 +278,8 @@ def _stim_fc(
     algo,
     algo_dict,
     stim_thresh,
+    mask=None,
+    conv=False,
     starphot=1,
 ):
     cubefc = cube_inject_companions(
@@ -325,7 +377,10 @@ def _stim_fc(
     
     for i,n in enumerate(ncomp):
         stim_map_fc[i] = stim_map(residuals_)/stim_thresh[i,0]
-
+        
+        if conv:
+            stim_map_fc[i] = masked_gaussian_convolution(stim_map_fc[i], mask, fwhm)
+        
         #max_target = np.nan_to_num(snrmap_fin[indc[0], indc[1]]).max()
         #mean_target = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]]).mean()
         #stim_map_fc[i][indc[0], indc[1]] = 0
@@ -336,13 +391,17 @@ def _stim_fc(
         #mean_target1 = np.nan_to_num(stim_map_fc[i][indc1[0], indc1[1]]).mean()
         #mean_target2 = np.nan_to_num(stim_map_fc[i][indc2[0], indc2[1]]).mean()
         
-        pxl_values = np.nan_to_num(stim_map_fc[i][indc1[0], indc1[1]])
+        pxl_values = np.nan_to_num(stim_map_fc[i][indc2[0], indc2[1]])
         these_indices = np.where(pxl_values>0)
         if len(these_indices[0]) <= 1:
             result[i] = 0
         else:
-            this_mean = np.mean(pxl_values[these_indices])
-            result[i] = this_mean - stim_thresh[i,3]
+            if conv:
+                this_v = np.nanmax(pxl_values[these_indices])
+            else:
+                this_v = np.mean(pxl_values[these_indices])
+                
+            result[i] = this_v - stim_thresh[i,3]
         
 
         #result[i] = max_target-max_map
@@ -921,7 +980,8 @@ def completeness_curve_stim(
     pxscale=0.1,
     n_fc=20,
     completeness=0.95,
-    sigma=5,
+    conv=False,
+    sigma=None,
     snr_approximation=True,
     max_iter=20,
     precision=10,
@@ -1155,6 +1215,8 @@ def completeness_curve_stim(
         for i,n in enumerate(ncomp):
             this_inverse = inverse_stim_map(residuals[i], angle_list, 
                             imlib=imlib, nproc = nproc)
+            if conv:
+                this_inverse = masked_gaussian_convolution(this_inverse, mask, fwhm)
             if mask is not None:
                 if np.isscalar(mask):
                     this_inverse = mask_circle(this_inverse, mask)
@@ -1168,7 +1230,10 @@ def completeness_curve_stim(
             stim_threshold[i,0] = np.nanmax(this_inverse)
             stim_threshold[i,1] = np.mean(this_inverse[pxl_mask])
             stim_threshold[i,2] = np.std(this_inverse[pxl_mask])
-            stim_threshold[i,3] = (stim_threshold[i,1]+sigma*stim_threshold[i,2])/stim_threshold[i,0]
+            if sigma is not None:
+                stim_threshold[i,3] = (stim_threshold[i,1]+sigma*stim_threshold[i,2])/stim_threshold[i,0]
+            else:
+                stim_threshold[i,3] = 1
 
 
 
@@ -1220,7 +1285,7 @@ def completeness_curve_stim(
             res = np.zeros((n_fc,2))
             for b in range(0,n_fc):
                 res[b] = _stim_fc(a,b,level, n_fc, cube, psf, angle_list, 
-                        fwhm, algo, algo_dict, stim_threshold, starphot)
+                        fwhm, algo, algo_dict, stim_threshold, mask, conv, starphot)
                 
                 
                 if res[b][0] <= 0:
@@ -1242,13 +1307,12 @@ def completeness_curve_stim(
                         else:
                             prev = level
                             level = np.mean(level_bound)
-                            stop_thr = level/precision
                         break
                 else:
                     pos_detect.append(res[b][1])
                     val_detect.append(res[b][0])
                     
-                    if len(pos_detect) > nbr_to_detect:
+                    if len(pos_detect) >= nbr_to_detect:
                         level_bound[1] = level
                         if level_bound[0] is None:
                             prev = level
@@ -1257,22 +1321,11 @@ def completeness_curve_stim(
                         else:
                             prev = level
                             level = np.mean(level_bound)
-                            stop_thr = level/precision
                         break
-            
-            if len(pos_detect) == nbr_to_detect:
-                prev = level
-                level_bound[1] = level
-                cond = level_bound[0] is None or level_bound[1] is None
-                if cond:
-                    level *= 0.75
-                else:
-                    level = np.mean(level_bound)
-                stop_thr = level/precision
             
             cond = level_bound[0] is None or level_bound[1] is None
             if not cond:
-                if np.abs(prev - level) < stop_thr:
+                if np.abs(level_bound[1] - level_bound[0]) < precision*2*level:
                     if verbose:
                         print('Precision reached: ', level_bound)
                     break
