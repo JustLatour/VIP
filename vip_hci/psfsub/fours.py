@@ -249,7 +249,7 @@ def annulus_4S(cube, angle_list, inner_radius, asize, fwhm = 4,
         new_size = (inner_radius + asize)*2 + 3
     
     if y > new_size:
-        cube = cube_crop_frames(cube, new_size)
+        cube = cube_crop_frames(cube, new_size, verbose = False)
         
     yy,xx = get_annulus_segments(cube[0], inner_radius, asize, nsegm = 1, mode = 'ind')[0]
     
@@ -386,10 +386,7 @@ def annulus_4S(cube, angle_list, inner_radius, asize, fwhm = 4,
         if np.abs(loss.item() - prev) < precision:
             break
         prev = loss.item()
-
-    if verbose:
-        print("Optimized matrix:")
-        print(matrix)
+        
         
     output_data = (input_data - torch.matmul(input_data, matrix))*std
     output_data = output_data.detach().numpy()
