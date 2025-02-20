@@ -49,6 +49,9 @@ from ..fm.utils_negfc import find_nearest
 from ..preproc import cube_crop_frames
 from ..var import get_annulus_segments, frame_center, mask_circle
 
+from hciplot import plot_frames
+from photutils.aperture import CircularAperture, aperture_photometry
+
 
 from scipy import signal
 
@@ -68,6 +71,16 @@ def masked_gaussian_convolution(image, mask, fwhm):
     2D numpy array
         Convolved image with the same shape as the input, where only the masked region is convolved.
     """
+    
+    def gaussian_kernel(size: int, sigma: float):
+        """Generates a 2D Gaussian kernel."""
+        x_coord = np.arange(size) - size // 2
+        x_grid, y_grid = np.meshgrid(x_coord, x_coord, indexing='ij')
+    
+        gaussian_kernel = np.exp(-(x_grid**2 + y_grid**2) / (2 * sigma**2))
+    
+        return gaussian_kernel
+    
     if mask is None:
         mask = np.ones_like(image)
     mask = np.array(mask, dtype = bool)
@@ -75,10 +88,8 @@ def masked_gaussian_convolution(image, mask, fwhm):
     # Create Gaussian kernel
     sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
     kernel_size = 2 * int(3 * sigma) + 1
-    x = np.linspace(-3*sigma, 3*sigma, kernel_size)
-    y = x[:, np.newaxis]
-    kernel = np.exp(-(x**2 + y.T**2) / (2 * sigma**2))
-    kernel = kernel / kernel.sum()  # Normalize the kernel
+
+    kernel = gaussian_kernel(kernel_size, sigma)
     
     # Compute numerator: convolution of (image * mask) with kernel
     numerator = signal.convolve2d(image * mask, kernel, mode='same', boundary='symm')
@@ -97,7 +108,75 @@ def masked_gaussian_convolution(image, mask, fwhm):
     result = image.copy()
     result[mask] = convolved_region[mask]
     
+    result *= mask
+    
     return result
+
+def create_distance_interpolated_array(values, shape):
+    """
+    Create a 2D array where each pixel's value is determined by its distance to the center,
+    using linear interpolation from the given values vector.
+
+    Parameters:
+        values (list or np.ndarray): The 1D vector of values to interpolate from.
+    height (int): The height of the output 2D array.
+    width (int): The width of the output 2D array.
+
+    Returns:
+        np.ndarray: The resulting 2D array with interpolated values based on distance from the center.
+    """
+    values = np.asarray(values)
+    if len(values) == 0:
+        raise ValueError("Values vector must not be empty.")
+
+    height = shape[0]
+    width = shape[1]
+
+    # Calculate center coordinates
+    y_center = height / 2.0
+    x_center = width / 2.0
+
+    # Generate grid of indices
+    y_indices, x_indices = np.indices((height, width))
+
+    # Compute Euclidean distance from the center for each pixel
+    distances = np.sqrt((x_indices - x_center)**2 + (y_indices - y_center)**2)
+
+    # Compute floor and ceiling indices for each distance
+    floor_d = np.floor(distances).astype(int)
+    ceil_d = floor_d + 1
+    alpha = distances - floor_d  # Fractional part for interpolation
+
+    # Clamp indices to valid range [0, len(values)-1]
+    max_index = len(values) - 1
+    floor_d = np.clip(floor_d, 0, max_index)
+    ceil_d = np.clip(ceil_d, 0, max_index)
+
+    # Perform linear interpolation
+    interpolated = (1 - alpha) * values[floor_d] + alpha * values[ceil_d]
+
+    return interpolated
+
+
+def return_stim_max(stim, mask = None, fwhm = 4, width = 1):
+    y,x = stim.shape
+
+    values = np.zeros(int(x/2))
+
+    factor = 2 / width
+    for r in range(int(x/2)):
+        this_mask = np.ones((y,x))
+        this_min = np.max((0,r-fwhm/factor))
+        this_max = np.min((r+fwhm/factor, x/2))
+        this_mask = mask_circle(this_mask, this_min)
+        this_mask = mask_circle(this_mask, this_max, mode = 'out')
+        if mask is not None:
+            this_mask *= mask
+
+        values[r] = np.nanmax(stim*this_mask)
+
+    values[np.where(values <= 0)] = np.nanmax(values)
+    return values
 
 
 def _estimate_snr_fc(
@@ -268,6 +347,7 @@ def _estimate_snr_fc(
 
 def _stim_fc(
     a,
+    an_dist,
     b,
     level,
     n_fc,
@@ -278,15 +358,17 @@ def _stim_fc(
     algo,
     algo_dict,
     stim_thresh,
+    through_thresh=0.1,
     mask=None,
     conv=False,
-    starphot=1,
+    starphot=1
 ):
+    flevel = level * starphot
     cubefc = cube_inject_companions(
         cube,
         psf,
         angle_list,
-        flevel=level * starphot,
+        flevel=flevel,
         plsc=0.1,
         rad_dists=a,
         theta=b / n_fc * 360,
@@ -345,12 +427,14 @@ def _stim_fc(
         )
         frame_fin = output_temp[2]
         residuals_ = output_temp[1]
+        residuals = output_temp[0]
     elif algo_name == 'pca':
         output_temp = algo(cube=cubefc, angle_list=angle_list, 
                          full_output = True, **algo_dict)
         
         frame_fin = output_temp[0]
         residuals_ = output_temp[4]
+        residuals = output_temp[3]
 
     ncomp = algo_dict['ncomp']
     if np.isscalar(ncomp):
@@ -368,18 +452,27 @@ def _stim_fc(
     sigposy = int(y / 2 + np.sin(b / n_fc * twopi) * a)
     sigposx = int(x / 2 + np.cos(b / n_fc * twopi) * a)
     
-    indc = disk((sigposy, sigposx), fwhm/2)
+    indc = disk((sigposy, sigposx), fwhm/1.5)
     
-    indc0 = disk((sigposy, sigposx), fwhm/3)
-    indc1 = disk((sigposy, sigposx), fwhm/2)
-    indc2 = disk((sigposy, sigposx), fwhm/1.5)
+    this_a = np.where(an_dist == a)[0][0]
     
+    if nncomp == 1:
+        residuals = residuals_.reshape(1,residuals.shape[0], 
+                                    residuals.shape[1],residuals.shape[2])
+        residuals_ = residuals_.reshape(1,residuals_.shape[0], 
+                                    residuals_.shape[1],residuals_.shape[2])
+        frame_fin = frame_fin.reshape(1, frame_fin.shape[0], frame_fin.shape[1])
+        
     
     for i,n in enumerate(ncomp):
-        stim_map_fc[i] = stim_map(residuals_)/stim_thresh[i,0]
+        
+        stim_map_fc[i] = stim_map(residuals_[i])/stim_thresh[i][0]
         
         if conv:
             stim_map_fc[i] = masked_gaussian_convolution(stim_map_fc[i], mask, fwhm)
+        
+        #if mask is not None:
+        #    stim_map_fc[i] *= mask
         
         #max_target = np.nan_to_num(snrmap_fin[indc[0], indc[1]]).max()
         #mean_target = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]]).mean()
@@ -391,7 +484,7 @@ def _stim_fc(
         #mean_target1 = np.nan_to_num(stim_map_fc[i][indc1[0], indc1[1]]).mean()
         #mean_target2 = np.nan_to_num(stim_map_fc[i][indc2[0], indc2[1]]).mean()
         
-        pxl_values = np.nan_to_num(stim_map_fc[i][indc2[0], indc2[1]])
+        pxl_values = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]])
         these_indices = np.where(pxl_values>0)
         if len(these_indices[0]) <= 1:
             result[i] = 0
@@ -401,8 +494,16 @@ def _stim_fc(
             else:
                 this_v = np.mean(pxl_values[these_indices])
                 
-            result[i] = this_v - stim_thresh[i,3]
+            result[i] = this_v - stim_thresh[i][3]
+            
+        apertures = CircularAperture((sigposx, sigposy), fwhm / 2)
+        this_flux = aperture_photometry(frame_fin[i], apertures)
+        this_flux = np.array(this_flux["aperture_sum"])[0]
+        recovered_flux = this_flux - stim_thresh[i][4][this_a,b]
+        this_throughput = recovered_flux/flevel
         
+        if this_throughput < through_thresh:
+            result[i] = 0
 
         #result[i] = max_target-max_map
         #result[i] = mean_target - 1
@@ -427,7 +528,7 @@ def _stim_fc(
     if nncomp == 1:
         result = result[0]
 
-    return result, b
+    return result, b, stim_map_fc
 
 
 # TODO: Include algo_class modifications in any tutorial using this function
@@ -984,7 +1085,10 @@ def completeness_curve_stim(
     sigma=None,
     snr_approximation=True,
     max_iter=20,
-    precision=10,
+    precision=0.1,
+    through_thresh=0.1,
+    progressive_thr=True,
+    width = 1.5,
     mask=None,
     algo_dict={},
     verbose=True,
@@ -1090,7 +1194,7 @@ def completeness_curve_stim(
         Contrasts for the considered radial distances and selected completeness
         level.
     """
-
+    
     if (100 * completeness) % (100 / n_fc) > 0:
         n_fc = int(100 / gcd(int(100 * completeness), 100))
 
@@ -1184,6 +1288,7 @@ def completeness_curve_stim(
                           **algo_dict)
             
             residuals = output[3]
+            frames = output[0]
         elif algo.__name__ == 'pca_annular':
             output = algo(cube=cube,
                           angle_list=angle_list,
@@ -1192,6 +1297,7 @@ def completeness_curve_stim(
                           **algo_dict)
             
             residuals = output[0]
+            frames = output[2]
         else:
             raise ValueError("algorithm not supported")
     else:
@@ -1206,17 +1312,20 @@ def completeness_curve_stim(
     
         nncomp = len(ncomp)
         
-        stim_threshold = np.zeros((nncomp,4))
+        stim_threshold = []
         
         if nncomp == 1:
             residuals = residuals.reshape(1,residuals.shape[0], 
                                         residuals.shape[1],residuals.shape[2])
+            frames = frames.reshape(1, frames.shape[0], frames.shape[1])
         
         for i,n in enumerate(ncomp):
             this_inverse = inverse_stim_map(residuals[i], angle_list, 
                             imlib=imlib, nproc = nproc)
+            
             if conv:
                 this_inverse = masked_gaussian_convolution(this_inverse, mask, fwhm)
+            
             if mask is not None:
                 if np.isscalar(mask):
                     this_inverse = mask_circle(this_inverse, mask)
@@ -1226,15 +1335,42 @@ def completeness_curve_stim(
                 pxl_mask = np.where((mask == 1) & (this_inverse > 0))
             else:
                 pxl_mask = np.where(this_inverse > 0)
-
-            stim_threshold[i,0] = np.nanmax(this_inverse)
-            stim_threshold[i,1] = np.mean(this_inverse[pxl_mask])
-            stim_threshold[i,2] = np.std(this_inverse[pxl_mask])
+                
+                
             if sigma is not None:
-                stim_threshold[i,3] = (stim_threshold[i,1]+sigma*stim_threshold[i,2])/stim_threshold[i,0]
+                thresh = (stim_threshold[i,1]+sigma*stim_threshold[i,2])/stim_threshold[i,0]
             else:
-                stim_threshold[i,3] = 1
-
+                thresh = 1
+                
+            if progressive_thr:
+                values = return_stim_max(this_inverse, mask, fwhm, width = width)
+                this_max = create_distance_interpolated_array(values, this_inverse.shape)
+                this_max *= mask
+                this_max[np.where(this_max == 0)] = np.nanmax(this_max)
+            else:
+                this_max = np.nanmax(this_inverse)
+                
+                
+            y, x = frames[i].shape
+            twopi = 2 * np.pi
+            yy = np.zeros((len(an_dist), n_fc))
+            xx = np.zeros((len(an_dist), n_fc))
+            fluxes = np.zeros((len(an_dist), n_fc))
+            for k,a in enumerate(an_dist):
+                for b in range(n_fc):
+                    sigposy = y / 2 + np.sin(b / n_fc * twopi) * a
+                    sigposx = x / 2 + np.cos(b / n_fc * twopi) * a
+                    
+                    yy[k,b] = sigposy
+                    xx[k,b] = sigposx
+                    
+                apertures = CircularAperture(np.array((xx[k], yy[k])).T, fwhm / 2)
+                these_fluxes = aperture_photometry(frames[i], apertures)
+                these_fluxes = np.array(these_fluxes["aperture_sum"])
+                fluxes[k] = these_fluxes
+            
+            stim_threshold.append([this_max, np.mean(this_inverse[pxl_mask]), 
+                                   np.std(this_inverse[pxl_mask]), thresh, fluxes])
 
 
     completeness_curve = np.zeros((len(an_dist), 3))
@@ -1277,6 +1413,7 @@ def completeness_curve_stim(
             pos_non_detect = []
             val_detect = []
             val_non_detect = []
+            stim_maps = np.zeros((n_fc, cube.shape[-1], cube.shape[-1]))
             
             cond = level_bound[0] is None or level_bound[1] is None
             if verbose and not cond:
@@ -1284,9 +1421,12 @@ def completeness_curve_stim(
             
             res = np.zeros((n_fc,2))
             for b in range(0,n_fc):
-                res[b] = _stim_fc(a,b,level, n_fc, cube, psf, angle_list, 
-                        fwhm, algo, algo_dict, stim_threshold, mask, conv, starphot)
+                this_result = _stim_fc(a,an_dist,b,level, n_fc, cube, psf, angle_list, 
+                        fwhm, algo, algo_dict, stim_threshold, through_thresh, 
+                        mask, conv, starphot)
                 
+                res[b] = this_result[0:2]
+                stim_maps[b] = this_result[2]
                 
                 if res[b][0] <= 0:
                     pos_non_detect.append(res[b][1])
@@ -1303,10 +1443,11 @@ def completeness_curve_stim(
                             level *= 1.5
                             if level > 1:
                                 level = 1
-                            stop_thr = level/precision
+                            stop_thr = level*precision
                         else:
                             prev = level
                             level = np.mean(level_bound)
+                            stop_thr = level*precision
                         break
                 else:
                     pos_detect.append(res[b][1])
@@ -1317,15 +1458,18 @@ def completeness_curve_stim(
                         if level_bound[0] is None:
                             prev = level
                             level *= 0.75
-                            stop_thr = level/precision
+                            stop_thr = level*precision
                         else:
                             prev = level
                             level = np.mean(level_bound)
+                            stop_thr = level*precision
                         break
             
             cond = level_bound[0] is None or level_bound[1] is None
             if not cond:
-                if np.abs(level_bound[1] - level_bound[0]) < precision*2*level:
+                #plot_frames(stim_maps, rows = 5)
+                #if np.abs(level_bound[1] - level_bound[0]) < precision*2*10**(np.floor(np.log10(np.abs(level)))):
+                if np.abs(level_bound[1] - level_bound[0]) < stop_thr*2:
                     if verbose:
                         print('Precision reached: ', level_bound)
                     break
