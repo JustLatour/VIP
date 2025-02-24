@@ -47,7 +47,7 @@ from ..var import (
     frame_filter_lowpass
 )
 
-
+import time
 import math
 import torch
 import torch.optim.lr_scheduler as lr_scheduler
@@ -242,6 +242,9 @@ def annulus_4S(cube, angle_list, inner_radius, asize, fwhm = 4,
             nproc = 1, imlib = "vip-fft", interpolation = "lanczos4", 
             convolve = False, precision = 1e-9, save_memory = False):
     
+    if verbose:
+        start = time.time()
+    
     y = cube.shape[-1]
     if y % 2 == 0:
         new_size = (inner_radius + asize)*2 + 2
@@ -276,12 +279,17 @@ def annulus_4S(cube, angle_list, inner_radius, asize, fwhm = 4,
     matrix = torch.tensor(np.zeros((nbr_pixels, nbr_pixels)), dtype=torch.float32)
     
     mask_array = np.ones((nbr_pixels,nbr_pixels))
-    aperture = CircularAperture(np.array((xx, yy)).T, r=radius_mask*fwhm)
-    yy_m,xx_m = pxs_coord((y,x), aperture)
+    if radius_mask > 0:
+        aperture = CircularAperture(np.array((xx, yy)).T, r=radius_mask*fwhm)
+        yy_m,xx_m = pxs_coord((y,x), aperture)
+    else:
+        yy_m = np.array([])
+        xx_m = np.array([])
     
     for ap in range(0, nbr_pixels):
         annulus_copy = np.copy(annulus_mask)
-        annulus_copy[yy_m[ap], xx_m[ap]] += 1
+        if len(yy_m) > 0:
+            annulus_copy[yy_m[ap], xx_m[ap]] += 1
         yy_mask,xx_mask = np.where(annulus_copy == 2)
         coord_ap = set(zip(yy_mask, xx_mask))
         
@@ -395,13 +403,23 @@ def annulus_4S(cube, angle_list, inner_radius, asize, fwhm = 4,
     cube_data[:,yy,xx] = output_data
 
     angle_list = angle_list.detach().numpy()
-    cube_data = cube_derotate(
+    cube_data_ = cube_derotate(
                 cube_data,
                 angle_list,
                 nproc=nproc,
                 imlib=imlib,
                 interpolation=interpolation, mask_val = 0, interp_zeros = True)
+    
+    
+    mask_annular = np.zeros((y,x))
+    mask_annular[yy,xx] = 1
+    cube_data_ *= mask_annular
 
-    result = np.median(cube_data, axis = 0)
-        
-    return cube_data, result, loss.item(), matrix.detach().numpy(), inter_images
+    result = np.median(cube_data_, axis = 0)
+    result *= mask_annular
+    
+    if verbose:
+        end = time.time()
+        print('Algorithm ran for {} seconds'.format(end-start))
+    
+    return cube_data, cube_data_, result, loss.item(), matrix.detach().numpy(), inter_images

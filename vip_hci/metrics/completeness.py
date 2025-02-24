@@ -51,9 +51,30 @@ from ..var import get_annulus_segments, frame_center, mask_circle
 
 from hciplot import plot_frames
 from photutils.aperture import CircularAperture, aperture_photometry
+from ..config.paramenum import (
+    SvdMode,
+    Adimsdi,
+    Interpolation,
+    Imlib,
+    Collapse,
+    ALGO_KEY,
+)
 
 
 from scipy import signal
+
+def get_adi_res(cube, collapse_ifs = 'mean'):
+    cube = np.array(cube)
+    nc, nz, ny, nx = cube.shape
+
+    if collapse_ifs == 'mean':
+        result = np.mean(cube[:,:,:,:], axis = 0)
+    elif collapse_ifs == 'median':
+        result = np.median(cube[:,:,:,:], axis = 0)
+    else:
+        raise TypeError('Collapse mode not recognized')
+
+    return result
 
 def masked_gaussian_convolution(image, mask, fwhm):
     """
@@ -432,9 +453,30 @@ def _stim_fc(
         output_temp = algo(cube=cubefc, angle_list=angle_list, 
                          full_output = True, **algo_dict)
         
-        frame_fin = output_temp[0]
-        residuals_ = output_temp[4]
-        residuals = output_temp[3]
+        if len(cubefc.shape) == 4:
+            if algo_dict['scale_list'] is None:
+                frame_fin = output_temp[0]
+                residuals_ = output_temp[4]
+                residuals = output_temp[3]
+            else:
+                frame_fin = output_temp[0]
+                residuals_ = output_temp[2]
+                residuals = output_temp[1]
+                
+            to_collapse = False
+            if 'adimsdi' in algo_dict.keys():
+                if algo_dict['adimsdi'] == Adimsdi.SINGLE:
+                    to_collapse = True
+            else:
+                to_collapse = True
+                
+            if to_collapse:
+                residuals_ = get_adi_res(residuals_)
+                residuals = get_adi_res(residuals)
+        else:
+            frame_fin = output_temp[0]
+            residuals_ = output_temp[4]
+            residuals = output_temp[3]
 
     ncomp = algo_dict['ncomp']
     if np.isscalar(ncomp):
@@ -1287,8 +1329,27 @@ def completeness_curve_stim(
                           full_output = True,
                           **algo_dict)
             
-            residuals = output[3]
-            frames = output[0]
+            if len(cube.shape) == 4:
+                if algo_dict['scale_list'] is None:
+                    frames = output[0]
+                    residuals = output[3]
+                else:
+                    frames = output[0]
+                    residuals = output[1]
+                    
+                to_collapse = False
+                if 'adimsdi' in algo_dict.keys():
+                    if algo_dict['adimsdi'] == Adimsdi.SINGLE:
+                        to_collapse = True
+                else:
+                    to_collapse = True
+                    
+                if to_collapse:
+                    residuals = get_adi_res(residuals)
+            else:
+                frames = output[0]
+                residuals = output[3]
+                
         elif algo.__name__ == 'pca_annular':
             output = algo(cube=cube,
                           angle_list=angle_list,
