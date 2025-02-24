@@ -359,6 +359,8 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
     for pc in pclist:
         if mode == 'fullfr':
             frame = truncate_svd_get_finframe(matrix, angle_list, pc, V)
+            if mask_center_px is not None:
+                frame = mask_circle(frame, mask_center_px)
         elif mode == 'annular':
             frame = truncate_svd_get_finframe_ann(matrix, annind,
                                                   angle_list, pc, V)

@@ -1542,7 +1542,7 @@ def _adimsdi_singlepca(
         if verbose:
             print("De-rotating and combining residuals")
             timing(start_time)
-        print(resadi_cube.shape)
+
         der_res = cube_derotate(
             resadi_cube,
             angle_list,
