@@ -70,6 +70,7 @@ from ..config.utils_conf import pool_map, iterable
 from ..config.utils_param import setup_parameters, separate_kwargs_dict
 from ..preproc.derotation import _find_indices_adi, _compute_pa_thresh
 from ..preproc import cube_rescaling_wavelengths as scwave
+from ..preproc import cube_rescaling_wavelengths_mp as scwave_mp
 from ..preproc import (
     cube_derotate,
     cube_collapse,
@@ -525,15 +526,22 @@ def pca(*all_args: List, **all_kwargs: dict):
             #Rescaling of science cube
             big_cube = []
         
-            Max_sc = np.max(algo_params.scale_list)
-            for i in Progressbar(range(nch), verbose=algo_params.verbose):
-                Scale_list_buffer = np.array([algo_params.scale_list[int(i)]] * nz + [Max_sc])
-                cube_resc = scwave((algo_params.cube[i, :, :, :]), 
-                    Scale_list_buffer, imlib = algo_params.imlib2,
-                    interpolation=algo_params.interpolation)[0]
-                big_cube.append(cube_resc[:, :, :])
+            #Max_sc = np.max(algo_params.scale_list)
+            #for i in Progressbar(range(nch), verbose=algo_params.verbose):
+            #    Scale_list_buffer = np.array([algo_params.scale_list[int(i)]] * nz + [Max_sc])
+            #    cube_resc = scwave((algo_params.cube[i, :, :, :]), 
+            #        Scale_list_buffer, imlib = algo_params.imlib2,
+            #        interpolation=algo_params.interpolation)[0]
+            #    big_cube.append(cube_resc[:, :, :])
         
-            big_cube = np.array(big_cube)
+            #big_cube = np.array(big_cube)
+            
+            big_cube = scwave_mp(algo_params.cube, algo_params.scale_list, 
+                                 full_output = True, inverse = False, 
+                                 y_in=None, x_in=None, 
+                                 imlib = algo_params.imlib2, interpolation = algo_params.interpolation, 
+                                 crop_ifs = algo_params.crop_ifs, 
+                                 nproc = algo_params.nproc, verbose = algo_params.verbose)
         
             for ch in range(nch):
                 if algo_params.verbose:
@@ -1463,14 +1471,12 @@ def _adimsdi_singlepca(
 
     if verbose:
         print("Rescaling the spectral channels to align the speckles")
-    for i in Progressbar(range(n), verbose=verbose):
-        cube_resc = scwave(cube[:, i, :, :], scale_list, imlib=imlib2,
-                           interpolation=interpolation)[0]
-        if crop_ifs:
-            cube_resc = cube_crop_frames(cube_resc, size=y_in, verbose=False)
-        big_cube.append(cube_resc)
 
-    big_cube = np.array(big_cube)
+    big_cube = scwave_mp(cube, scale_list, full_output = True, inverse = False, 
+                         y_in=y_in, x_in=x_in, imlib = imlib2, 
+                         interpolation = interpolation, crop_ifs = crop_ifs, 
+                         nproc = nproc, verbose = verbose)
+
     big_cube = big_cube.reshape(z * n, big_cube.shape[2], big_cube.shape[3])
 
     if verbose:
@@ -1524,20 +1530,22 @@ def _adimsdi_singlepca(
         else:
             idx_ini = ifs_collapse_range[0]
             idx_fin = ifs_collapse_range[1]
-
-        for i in Progressbar(range(n), verbose=verbose):
-            frame_i = scwave(
-                res_cube[i * z + idx_ini:i * z + idx_fin],
-                scale_list[idx_ini:idx_fin],
-                full_output=False,
-                inverse=True,
-                y_in=y_in,
-                x_in=x_in,
-                imlib=imlib2,
-                interpolation=interpolation,
-                collapse=collapse_ifs,
-            )
-            resadi_cube[i] = frame_i
+            
+        this_y, this_x = res_cube.shape[-2:]
+        res_cube = res_cube.reshape((n,z,this_y,this_x))
+        res_cube = np.swapaxes(res_cube, 0, 1)
+        
+        resadi_cube = scwave_mp(res_cube[idx_ini:idx_fin,:,:,:], 
+                  scale_list[idx_ini:idx_fin],
+                  full_output = False,
+                  inverse = True,
+                  y_in=y_in,
+                  x_in=x_in,
+                  imlib=imlib2,
+                  interpolation=interpolation,
+                  collapse_ifs=collapse_ifs,
+                  nproc=nproc,
+                  verbose=False)
 
         if verbose:
             print("De-rotating and combining residuals")

@@ -9,12 +9,14 @@ __all__ = ['pca_annulus',
 
 import numpy as np
 from sklearn.decomposition import IncrementalPCA
+from multiprocessing import cpu_count
 from pandas import DataFrame
 from skimage.draw import disk
 from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from ..fits import open_fits
 from ..preproc import cube_rescaling_wavelengths as scwave
+from ..preproc import cube_rescaling_wavelengths_mp as scwave_mp
 from .svd import svd_wrapper
 from ..preproc import cube_derotate, cube_collapse, check_pa_vector
 from ..config import timing, time_ini, check_array, get_available_memory
@@ -28,7 +30,7 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
              scaling=None, mask_center_px=None, fmerit='mean', imlib2='vip-fft',
              collapse='median', ifs_collapse_range='all', verbose=True,
              full_output=False, debug=False, plot=True, save_plot=None,
-             start_time=None, scale_list=None, initial_4dshape=None,
+             start_time=None, scale_list=None, initial_4dshape=None, nproc=None,
              weights=None, exclude_negative_lobes=False, **rot_options):
     """
     Compute a grid, depending on ``range_pcs``, of residual PCA frames out of a
@@ -190,7 +192,7 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
     """
     from ..metrics import snr, frame_report
 
-    def truncate_svd_get_finframe(matrix, angle_list, ncomp, V):
+    def truncate_svd_get_finframe(matrix, angle_list, ncomp, V, nproc = None):
         """ Projection, subtraction, derotation plus combination in one frame.
         Only for full-frame"""
         transformed = np.dot(V[:ncomp], matrix.T)
@@ -210,6 +212,7 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
                 print("Descaling the spectral channels and obtaining a final frame")
             residuals_reshaped = np.zeros((n_adi, y_in, y_in))
             
+            #For ARSDI case, have (1,n_adi,:,:) shape
             if ARSDI_channel:
                 z = n_adi
                 n_adi = 1
@@ -220,16 +223,31 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
             else:
                 idx_ini = ifs_collapse_range[0]
                 idx_fin = ifs_collapse_range[1]
+                
+            this_y, this_x = residuals_res.shape[-2:]
+            residuals_res = residuals_res.reshape((n_adi,z,this_y,this_x))
+            residuals_res = np.swapaxes(residuals_res, 0, 1)
+            
+            residuals_reshaped = scwave_mp(residuals_res[idx_ini:idx_fin,:,:,:], 
+                      scale_list[idx_ini:idx_fin],
+                      full_output = ARSDI_channel,
+                      inverse = True,
+                      y_in=y_in,
+                      x_in=x_in,
+                      imlib=imlib2,
+                      collapse_ifs=collapse,
+                      nproc=nproc,
+                      verbose=False)
 
-            for i in range(n_adi):
-                frame_i = scwave(residuals_res[i*z+idx_ini:i*z+idx_fin, :, :],
-                                 scale_list[idx_ini:idx_fin], full_output=ARSDI_channel,
-                                 inverse=True, y_in=y_in, x_in=x_in, imlib=imlib2,
-                                 collapse=collapse)
-                if ARSDI_channel:
-                    residuals_reshaped = frame_i[0]
-                else:
-                    residuals_reshaped[i] = frame_i
+            #for i in range(n_adi):
+            #    frame_i = scwave(residuals_res[i*z+idx_ini:i*z+idx_fin, :, :],
+            #                     scale_list[idx_ini:idx_fin], full_output=ARSDI_channel,
+            #                     inverse=True, y_in=y_in, x_in=x_in, imlib=imlib2,
+            #                     collapse=collapse)
+            #    if ARSDI_channel:
+            #        residuals_reshaped = frame_i[0]
+            #    else:
+            #        residuals_reshaped[i] = frame_i
         else:
             residuals_reshaped = residuals_res
 
@@ -292,6 +310,9 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
     if start_time is None:
         start_time = time_ini(verbose)
     n = cube.shape[0]
+    
+    if nproc is None:
+        nproc = cpu_count()
 
     if source_xy is not None:
         if fwhm is None:
@@ -358,7 +379,7 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
     frlist = []
     for pc in pclist:
         if mode == 'fullfr':
-            frame = truncate_svd_get_finframe(matrix, angle_list, pc, V)
+            frame = truncate_svd_get_finframe(matrix, angle_list, pc, V, nproc)
             if mask_center_px is not None:
                 frame = mask_circle(frame, mask_center_px)
         elif mode == 'annular':

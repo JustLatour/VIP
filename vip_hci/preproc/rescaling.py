@@ -7,6 +7,7 @@ __all__ = [
     "frame_px_resampling",
     "cube_px_resampling",
     "cube_rescaling_wavelengths",
+    "cube_rescaling_wavelengths_mp",
     "frame_rescaling",
     "cube_rescaling",
     "check_scal_vector",
@@ -30,7 +31,12 @@ from scipy.optimize import minimize
 from ..var import frame_center, get_square, cube_filter_highpass
 from .subsampling import cube_collapse
 from .recentering import frame_shift
-from .cosmetics import frame_crop
+from .cosmetics import frame_crop, cube_crop_frames
+
+from multiprocessing import cpu_count
+from ..config.utils_conf import iterable
+from ..config.utils_conf import pool_map
+from ..config import Progressbar
 
 
 def cube_px_resampling(
@@ -468,6 +474,74 @@ def cube_rescaling_wavelengths(
         return frame
 
 
+def cube_rescaling_wavelengths_mp(
+    cube, 
+    scale_list, 
+    full_output=True,
+    inverse=False,
+    y_in=None,
+    x_in=None,
+    imlib="vip-fft",
+    interpolation="lanczos4",
+    crop_ifs=False,
+    collapse_ifs="median",
+    nproc=None,
+    verbose=False
+    ):
+    
+    z, n, y_in, x_in = cube.shape
+    
+    if nproc is None:
+        nproc = cpu_count()//2
+        
+    new_cube = []
+    frames = []
+
+    if nproc == 1:
+        for i in Progressbar(range(n), verbose=verbose):
+            results = cube_rescaling_wavelengths(cube[:, i, :, :], scale_list, 
+                            imlib=imlib, interpolation=interpolation, inverse=inverse,
+                            y_in=y_in, x_in=x_in, collapse=collapse_ifs,
+                            full_output=full_output)
+            
+            if full_output:
+                cube_resc = results[0]
+            
+                if crop_ifs:
+                    cube_resc = cube_crop_frames(cube_resc, size=y_in, verbose=False)
+                new_cube.append(cube_resc)
+            else:
+                frames.append(results)
+
+        new_cube = np.array(new_cube)
+        frames = np.array(frames)
+    else:
+        cube = np.swapaxes(cube, 0, 1)
+    
+        results = pool_map(nproc, cube_rescaling_wavelengths, 
+                   iterable(cube), scale_list, full_output, inverse, y_in, x_in, imlib,
+                   interpolation, collapse_ifs, "reflect")
+        
+        if full_output:
+            if crop_ifs:
+                new_cube = [cube_crop_frames(result[0], size=y_in, verbose=False)
+                               for result in results]
+            else:
+                new_cube = [result[0] for result in results]
+    
+            new_cube = np.array(new_cube)
+            new_cube = np.swapaxes(new_cube, 0, 1)
+        else:
+            frames = np.array(results)
+        #if inverse:
+        #    new_cube = np.swapaxes(new_cube, 0, 1)
+    
+    if full_output:
+        return new_cube
+    else:
+        return frames
+
+
 def _scale_func(output_coords, ref_xy=0, scaling=1.0, scale_y=None,
                 scale_x=None):
     """
@@ -713,9 +787,10 @@ def cube_rescaling(
     array_sc = []
     if scaling_list is None:
         scaling_list = [None] * array.shape[0]
+        
     for i in range(array.shape[0]):
         array_sc.append(
-            frame_rescaling(
+                frame_rescaling(
                 array[i],
                 ref_xy=ref_xy,
                 scale=scaling_list[i],
@@ -725,7 +800,10 @@ def cube_rescaling(
                 scale_x=scaling_x,
             )
         )
-    return np.array(array_sc)
+            
+    array_sc = np.array(array_sc)
+    
+    return array_sc
 
 
 def check_scal_vector(scal_vec):
