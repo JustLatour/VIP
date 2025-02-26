@@ -6,6 +6,7 @@ Created on Thu Feb 20 15:15:35 2025
 """
 
 import numpy as np
+from scipy.ndimage import shift
 from multiprocessing import cpu_count
 from typing import Tuple, Union, List
 from dataclasses import dataclass
@@ -55,6 +56,8 @@ import torch.optim as optim
 from photutils.aperture import aperture_photometry, CircularAperture
 import torch.nn.functional as F
 
+from hciplot import plot_frames
+
 def pxs_coord(im_shape, apertures):
     
     y_ind = []
@@ -73,6 +76,60 @@ def pxs_coord(im_shape, apertures):
         x_ind.append(x_indices)
     
     return y_ind, x_ind
+
+
+
+def construct_round_rfrr_template(radius,psf_template_in):
+
+    if radius == 0:
+        template_mask = np.zeros_like(psf_template_in)
+    else:
+        image_center = int(psf_template_in.shape[-1] / 2)
+
+        aperture = CircularAperture(positions=(image_center, image_center),
+                                    r=radius)
+        template_mask = aperture.to_mask().to_image(psf_template_in.shape)
+    template = psf_template_in * template_mask
+    
+    template /= np.max(template)
+
+    return template, template_mask
+
+
+def construct_rfrr_mask(input_mask, yy, xx, radius_mask, nbr_pixels):
+    
+    y,x = input_mask.shape
+    coord_ann = list(zip(yy,xx))
+    
+    mask_array = np.ones((nbr_pixels, nbr_pixels))
+    
+    if radius_mask > 0:
+        aperture = CircularAperture(np.array((xx, yy)).T, r=radius_mask)
+        yy_m,xx_m = pxs_coord((y,x), aperture)
+    else:
+        yy_m = np.array([])
+        xx_m = np.array([])
+    
+    for ap in range(0, nbr_pixels):
+        mask_copy = np.copy(input_mask)
+        if len(yy_m) > 0:
+            mask_copy[yy_m[ap], xx_m[ap]] += 1
+        yy_mask,xx_mask = np.where(mask_copy == 2)
+        coord_ap = set(zip(yy_mask, xx_mask))
+        
+        indices = []
+        for i, coord in enumerate(coord_ann):
+            if coord in coord_ap:
+                indices.append(i)
+        indices = np.array(indices, dtype = int)
+        
+        mask_array[indices,ap] = 0
+        
+    mask_array = torch.tensor(mask_array, dtype = torch.float32)
+    
+    return mask_array
+
+
 
 def torch_rotate_image(image: torch.Tensor, degrees: float) -> torch.Tensor:
     """
@@ -103,7 +160,7 @@ def torch_rotate_image(image: torch.Tensor, degrees: float) -> torch.Tensor:
     grid = F.affine_grid(rotation_matrix.unsqueeze(0), image.unsqueeze(0).size())
 
     # Apply the grid to rotate the image
-    rotated_image = F.grid_sample(image.unsqueeze(0), grid, mode = 'bicubic', align_corners = False)
+    rotated_image = F.grid_sample(image.unsqueeze(0), grid, mode = 'bicubic', align_corners = True)
 
     # Remove the batch dimension and return the rotated image
     return rotated_image.squeeze(0).squeeze(0)
@@ -135,7 +192,7 @@ def torch_rotate_image_opt(image: torch.Tensor, degrees: float, grid) -> torch.T
                                     [sin_theta,  cos_theta, 0]])
 
     # Apply the grid to rotate the image
-    rotated_image = F.grid_sample(image, grid, mode = 'bicubic', align_corners = False)
+    rotated_image = F.grid_sample(image, grid, mode = 'bicubic', align_corners = True)
 
     # Remove the batch dimension and return the rotated image
     return rotated_image.squeeze(0).squeeze(0)
@@ -216,7 +273,7 @@ def torch_cube_derotate(array, angle_list, cyx, n):
     return array_der
 
 
-def torch_cube_derotate_batch(array, angle_list, cyx, n, grids):
+def torch_cube_derotate_batch(array, grids):
     """Rotate a cube (3d array or image sequence) providing a vector or\
     corresponding angles.
 
@@ -231,40 +288,57 @@ def torch_cube_derotate_batch(array, angle_list, cyx, n, grids):
     """
     array_der = torch.zeros_like(array)
 
-    array_der = F.grid_sample(array.unsqueeze(1), grids, mode = 'bicubic', align_corners = False).squeeze(1)
+    array_der = F.grid_sample(array.unsqueeze(1), grids, mode = 'bicubic', align_corners = True).squeeze(1)
             
     return array_der
 
 
-def annulus_4S(cube, angle_list, inner_radius, asize, fwhm = 4, 
+def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template = None,
             radius_mask = 0.75, L2_penalty = 0, iterations = 100, lr = 0.1,
             history_size = 10, max_iter = 20, limit = 0, verbose = False, 
             nproc = 1, imlib = "vip-fft", interpolation = "lanczos4", 
-            convolve = False, precision = 1e-9, save_memory = False):
+            convolve = False, precision = 1e-9, save_memory = False,
+            var = False):
     
     if verbose:
         start = time.time()
     
-    y = cube.shape[-1]
-    if y % 2 == 0:
-        new_size = (inner_radius + asize)*2 + 2
-    else:
-        new_size = (inner_radius + asize)*2 + 3
-    
-    if y > new_size:
-        cube = cube_crop_frames(cube, new_size, verbose = False)
-        
-    yy,xx = get_annulus_segments(cube[0], inner_radius, asize, nsegm = 1, mode = 'ind')[0]
-    
-    cyx = cube.shape[2]/2
-    coord_ann = list(zip(yy,xx))
     n,y,x = cube.shape
+    
+    if asize is not None:
+        if y % 2 == 0:
+            new_size = (inner_radius + asize)*2 + 2
+        else:
+            new_size = (inner_radius + asize)*2 + 3
+    
+        if y > new_size:
+            cube = cube_crop_frames(cube, new_size, verbose = False)
+        
+        yy,xx = get_annulus_segments(cube[0], inner_radius, asize, nsegm = 1, mode = 'ind')[0]
+    else:
+        yy,xx = np.meshgrid(np.arange(0,y), np.arange(0,y))
+        yy = yy.flatten()
+        xx = xx.flatten()
+        
+    n,y,x = cube.shape
+        
+        
+    if psf_template is None:
+        psf_size = int(fwhm*3)
+        psf_model, _ = construct_round_rfrr_template(fwhm, psf_template_in=np.ones((psf_size,psf_size)))
+    else:
+        psf_model, _  = construct_round_rfrr_template(fwhm, psf_template_in=psf_template)
+        
+    psf_model = torch.tensor(psf_model, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+    
+    
+    cyx = cube.shape[-1]/2
 
     mask_annular = np.zeros((y,x))
     mask_annular[yy,xx] = 1
     mask_annular = torch.tensor(mask_annular, dtype = torch.float32)
 
-    inter_images = np.zeros((iterations, y, x))
+    inter_images = []
     
     annulus_mask = np.zeros_like(cube[0])
     annulus_mask[yy,xx] = 1
@@ -278,40 +352,16 @@ def annulus_4S(cube, angle_list, inner_radius, asize, fwhm = 4,
     
     matrix = torch.tensor(np.zeros((nbr_pixels, nbr_pixels)), dtype=torch.float32)
     
-    mask_array = np.ones((nbr_pixels,nbr_pixels))
-    if radius_mask > 0:
-        aperture = CircularAperture(np.array((xx, yy)).T, r=radius_mask*fwhm)
-        yy_m,xx_m = pxs_coord((y,x), aperture)
-    else:
-        yy_m = np.array([])
-        xx_m = np.array([])
-    
-    for ap in range(0, nbr_pixels):
-        annulus_copy = np.copy(annulus_mask)
-        if len(yy_m) > 0:
-            annulus_copy[yy_m[ap], xx_m[ap]] += 1
-        yy_mask,xx_mask = np.where(annulus_copy == 2)
-        coord_ap = set(zip(yy_mask, xx_mask))
-        
-        indices = []
-        for i, coord in enumerate(coord_ann):
-            if coord in coord_ap:
-                indices.append(i)
-        indices = np.array(indices, dtype = int)
-        
-        mask_array[indices,ap] = 0
-        matrix[indices, ap] = 0
+    mask_array = construct_rfrr_mask(annulus_mask, yy, xx, radius_mask * fwhm, nbr_pixels)
          
     matrix.requires_grad_(True)
     
-    mask_array = torch.tensor(mask_array, dtype = torch.float32)
 
     optimizer = torch.optim.LBFGS([matrix], lr=lr, max_iter=max_iter, history_size=history_size)
 
-    sigma = fwhm/(2*np.sqrt(2*np.log(2)))
-    psf_model = gaussian_kernel(nbr_pixels, sigma)
-    psf_model = psf_model.unsqueeze(0)
-
+    #sigma = fwhm/(2*np.sqrt(2*np.log(2)))
+    #psf_model = gaussian_kernel(nbr_pixels, sigma)
+    #psf_model = psf_model.unsqueeze(0)
 
     if not save_memory:
         grid_size = torch.tensor(cube).unsqueeze(1).size()
@@ -324,7 +374,7 @@ def annulus_4S(cube, angle_list, inner_radius, asize, fwhm = 4,
             [cos_theta, -sin_theta,torch.zeros(n),
             sin_theta, cos_theta,torch.zeros(n)], dim=-1).view(-1, 2, 3)
 
-        all_grids = F.affine_grid(rotation_matrix, grid_size, align_corners = False)
+        all_grids = F.affine_grid(rotation_matrix, grid_size, align_corners = True)
 
     if convolve:
         # Calculate Gaussian parameters
@@ -334,6 +384,9 @@ def annulus_4S(cube, angle_list, inner_radius, asize, fwhm = 4,
         # Generate Gaussian kernel
         kernel = gaussian_kernel(kernel_size, sigma, matrix.device)
         kernel = kernel.unsqueeze(0).unsqueeze(0)  # Shape: [1, 1, H, W]
+        
+    #if convolve:
+    #    mask_norm = F.conv2d(torch.tensor(annulus_mask).unsqueeze(0).unsqueeze(0), psf_model).view(y,x)
 
     prev = 0
     # Optimization loop
@@ -345,13 +398,18 @@ def annulus_4S(cube, angle_list, inner_radius, asize, fwhm = 4,
             this_matrix_m = matrix * mask_array
             
             if convolve:
-                this_col_image = torch.tensor(np.zeros((y, x)), dtype=torch.float32)
-                this_matrix = torch.tensor(np.zeros((nbr_pixels, nbr_pixels)), dtype=torch.float32)
-                for p in range(nbr_pixels):
-                    this_col = this_matrix_m[:,p]
-                    this_col_image[yy,xx] = this_col
-                    this_conv = masked_gaussian_convolution(this_col_image, mask_annular, kernel, kernel_size)
-                    this_matrix[:,p] = this_conv[yy,xx]
+                #this_col_image = torch.tensor(np.zeros((y, x)), dtype=torch.float32)
+                #this_matrix = torch.tensor(np.zeros((nbr_pixels, nbr_pixels)), dtype=torch.float32)
+                #for p in range(nbr_pixels):
+                #    this_col = this_matrix_m[:,p]
+                #    this_col_image[yy,xx] = this_col
+                #    this_conv = masked_gaussian_convolution(this_col_image, mask_annular, kernel, kernel_size)
+                #    this_matrix[:,p] = this_conv[yy,xx]
+                this_matrix_cube = torch.zeros((nbr_pixels, y, x))
+                this_matrix_cube[:,yy,xx] = this_matrix_m
+                this_matrix_conv = F.conv2d(this_matrix_cube.unsqueeze(1),
+                                       psf_model, padding = 'same').view(nbr_pixels,y,x)
+                this_matrix = this_matrix_conv[:,yy,xx]
             else:
                 this_matrix = this_matrix_m
             
@@ -361,16 +419,21 @@ def annulus_4S(cube, angle_list, inner_radius, asize, fwhm = 4,
             cube_data[:,yy,xx] = output_data
 
             if save_memory:
-                cube_data = torch_cube_derotate(cube_data, angle_list, cyx, n)
+                cube_data_ = torch_cube_derotate(cube_data, angle_list, cyx, n)
             else:
-                cube_data = torch_cube_derotate_batch(cube_data, angle_list, cyx, n, all_grids)
+                cube_data_ = torch_cube_derotate_batch(cube_data, all_grids)
+                
+            inter_images.append(np.median(cube_data_.detach().numpy(), axis = 0))
         
             output_data_ = torch.zeros((n, nbr_pixels))
-            output_data_ = cube_data[:,yy,xx]
+            output_data_ = cube_data_[:,yy,xx]
             
             # Compute loss
             L2 = L2_penalty*torch.sum(matrix**2)
-            objective = torch.mean(torch.std(output_data_, axis=0))*nbr_pixels + L2
+            if var:
+                objective = torch.sum(torch.var(output_data_, axis=0))*n + L2
+            else:
+                objective = torch.mean(torch.std(output_data_, axis=0))*n + L2
             loss = objective
             
             # Backward pass
@@ -422,4 +485,4 @@ def annulus_4S(cube, angle_list, inner_radius, asize, fwhm = 4,
         end = time.time()
         print('Algorithm ran for {} seconds'.format(end-start))
     
-    return cube_data, cube_data_, result, loss.item(), matrix.detach().numpy(), inter_images
+    return cube_data, cube_data_, result, loss.item(), matrix.detach().numpy(), np.array(inter_images)

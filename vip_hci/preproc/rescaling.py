@@ -8,6 +8,7 @@ __all__ = [
     "cube_px_resampling",
     "cube_rescaling_wavelengths",
     "cube_rescaling_wavelengths_mp",
+    "cube_rescaling_wavelengths_sm",
     "frame_rescaling",
     "cube_rescaling",
     "check_scal_vector",
@@ -37,6 +38,7 @@ from multiprocessing import cpu_count
 from ..config.utils_conf import iterable
 from ..config.utils_conf import pool_map
 from ..config import Progressbar
+import multiprocessing.shared_memory as shm
 
 
 def cube_px_resampling(
@@ -541,6 +543,240 @@ def cube_rescaling_wavelengths_mp(
     else:
         return frames
 
+
+def cube_rescaling_wavelengths_sm(
+    cube, 
+    scale_list, 
+    full_output=True,
+    inverse=False,
+    y_in=None,
+    x_in=None,
+    imlib="vip-fft",
+    interpolation="lanczos4",
+    crop_ifs=False,
+    collapse_ifs="median",
+    nproc=None,
+    verbose=False
+    ):
+    
+    z, n, y_in, x_in = cube.shape
+    
+    if nproc is None:
+        nproc = cpu_count()//2
+        
+    new_cube = []
+    frames = []
+
+    if nproc == 1:
+        for i in Progressbar(range(n), verbose=verbose):
+            results = cube_rescaling_wavelengths(cube[:, i, :, :], scale_list, 
+                            imlib=imlib, interpolation=interpolation, inverse=inverse,
+                            y_in=y_in, x_in=x_in, collapse=collapse_ifs,
+                            full_output=full_output)
+            
+            if full_output:
+                cube_resc = results[0]
+            
+                if crop_ifs:
+                    cube_resc = cube_crop_frames(cube_resc, size=y_in, verbose=False)
+                new_cube.append(cube_resc)
+            else:
+                frames.append(results)
+
+        new_cube = np.array(new_cube)
+        frames = np.array(frames)
+    else:
+        
+        shm_block = shm.SharedMemory(create=True, size=cube.nbytes)
+        shm_array = np.ndarray(cube.shape, dtype=cube.dtype, buffer=shm_block.buf)
+        np.copyto(shm_array, cube)
+        
+        indices = np.arange(0,cube.shape[1])
+        
+    
+        results = pool_map(nproc, cube_rescaling_wavelengths_with_sm, 
+                   shm_block.name, cube.shape, cube.dtype, iterable(indices), 
+                   scale_list, full_output, inverse, 
+                   y_in, x_in, imlib, interpolation, collapse_ifs, "reflect")
+        
+        if full_output:
+            if crop_ifs:
+                new_cube = [cube_crop_frames(result[0], size=y_in, verbose=False)
+                               for result in results]
+            else:
+                new_cube = [result[0] for result in results]
+    
+            new_cube = np.array(new_cube)
+            new_cube = np.swapaxes(new_cube, 0, 1)
+        else:
+            frames = np.array(results)
+        #if inverse:
+        #    new_cube = np.swapaxes(new_cube, 0, 1)
+        
+        shm_block.close()
+        shm_block.unlink()
+    
+    if full_output:
+        return new_cube
+    else:
+        return frames
+    
+    
+def cube_rescaling_wavelengths_with_sm(
+    cube_name,
+    cube_shape,
+    dtype,
+    index,
+    scal_list,
+    full_output=True,
+    inverse=False,
+    y_in=None,
+    x_in=None,
+    imlib="vip-fft",
+    interpolation="lanczos4",
+    collapse="median",
+    pad_mode="reflect",
+):
+    """
+    Scale/Descale a cube by scal_list, with padding. Can deal with NaN values.
+
+    Wrapper to scale or descale a cube by factors given in scal_list,
+    without any loss of information (zero-padding if necessary).
+    Important: in case of IFS data, the scaling factors in scal_list should be
+    >= 1 (ie. provide the scaling factors as for scaling to the longest
+    wavelength channel).
+
+    Parameters
+    ----------
+    cube: 3D-array
+       Data cube with frames to be rescaled.
+    scal_list: 1D-array
+       Vector of same dimension as the first dimension of datacube, containing
+       the scaling factor for each frame.
+    full_output: bool, optional
+       Whether to output just the rescaled cube (False) or also its median,
+       the new y and x shapes of the cube, and the new centers cy and cx of the
+       frames (True).
+    inverse: bool, optional
+       Whether to inverse the scaling factors in scal_list before applying them
+       or not; i.e. True is to descale the cube (typically after a first scaling
+       has already been done)
+    y_in, x_in: int
+       Initial y and x sizes, required for ``inverse=True``. In case the cube is
+       descaled, these values will be used to crop back the cubes/frames to
+       their original size.
+    imlib : {'opencv', 'ndimage', 'vip-fft'}, str optional
+        Library used for image transformations. Opencv is faster than ndimage or
+        skimage. 'vip-fft' corresponds to a FFT-based rescaling algorithm
+        implemented in VIP (``vip_hci.preproc.scale_fft``).
+    interpolation : str, optional
+        For 'ndimage' library: 'nearneig', bilinear', 'bicuadratic', 'bicubic',
+        'biquartic', 'biquintic'. The 'nearneig' interpolation is the fastest
+        and the 'biquintic' the slowest. The 'nearneig' is the poorer
+        option for interpolation of noisy astronomical images.
+        For 'opencv' library: 'nearneig', 'bilinear', 'bicubic', 'lanczos4'.
+        The 'nearneig' interpolation is the fastest and the 'lanczos4' the
+        slowest and accurate. 'lanczos4' is the default.
+    collapse : {'median', 'mean', 'sum', 'trimmean'}, str optional
+        Sets the way of collapsing the frames for producing a final image.
+    pad_mode : str, optional
+        One of the following string values:
+
+            ``'constant'``
+                pads with a constant value
+            ``'edge'``
+                pads with the edge values of array
+            ``'linear_ramp'``
+                pads with the linear ramp between end_value and the array edge
+                value.
+            ``'maximum'``
+                pads with the maximum value of all or part of the vector along
+                each axis
+            ``'mean'``
+                pads with the mean value of all or part of the vector along each
+                axis
+            ``'median'``
+                pads with the median value of all or part of the vector along
+                each axis
+            ``'minimum'``
+                pads with the minimum value of all or part of the vector along
+                each axis
+            ``'reflect'``
+                pads with the reflection of the vector mirrored on the first and
+                last values of the vector along each axis
+            ``'symmetric'``
+                pads with the reflection of the vector mirrored along the edge
+                of the array
+            ``'wrap'``
+                pads with the wrap of the vector along the axis. The first
+                values are used to pad the end and the end values are used to
+                pad the beginning
+
+    Returns
+    -------
+    frame: 2d array
+        [full_output=False] The median of the rescaled cube.
+    cube : 3d array
+        [full_output=True] Rescaled cube
+    frame : 2d array
+        [full_output=True] Median of the rescaled cube -- note it is in 2nd
+        position if full_output is set to True.
+    y,x,cy,cx : floats
+        [full_output=True] New y and x shapes of the cube, and the new centers
+        cy and cx of the frames
+
+    """
+    existing_shm = shm.SharedMemory(name=cube_name)
+    cube = np.ndarray(cube_shape, dtype = dtype, buffer=existing_shm.buf)[:,index,:,:]
+    #cube = full_cube[index,:,:,:]
+    n, y, x = cube.shape
+
+    max_sc = np.amax(scal_list)
+
+    if not inverse and max_sc > 1:
+        new_y = int(np.ceil(max_sc * y))
+        new_x = int(np.ceil(max_sc * x))
+        if (new_y - y) % 2 != 0:
+            new_y += 1
+        if (new_x - x) % 2 != 0:
+            new_x += 1
+        pad_len_y = (new_y - y) // 2
+        pad_len_x = (new_x - x) // 2
+        pad_width = ((0, 0), (pad_len_y, pad_len_y), (pad_len_x, pad_len_x))
+        big_cube = np.pad(cube, pad_width, pad_mode)
+    else:
+        big_cube = cube.copy()
+
+    n, y, x = big_cube.shape
+    cy, cx = frame_center(big_cube[0])
+
+    if inverse:
+        scal_list = 1.0 / scal_list
+        cy, cx = frame_center(cube[0])
+
+    # (de)scale the cube, so that a planet would now move radially
+    cube = cube_rescaling(big_cube, scal_list, ref_xy=(cx, cy), imlib=imlib,
+                          interpolation=interpolation)
+    frame = cube_collapse(cube, collapse)
+
+    if inverse and max_sc > 1:
+        if y_in is None or x_in is None:
+            raise ValueError("Provide y_in and x_in when inverse=True")
+        siz = max(y_in, x_in)
+        if frame.shape[0] > siz:
+            frame = get_square(frame, siz, cy, cx)
+        if full_output and cube.shape[-1] > siz:
+            n_z = cube.shape[0]
+            array_old = cube.copy()
+            cube = np.zeros([n_z, siz, siz])
+            for zz in range(n_z):
+                cube[zz] = get_square(array_old[zz], siz, cy, cx)
+
+    if full_output:
+        return cube, frame, y, x, cy, cx
+    else:
+        return frame
+    
 
 def _scale_func(output_coords, ref_xy=0, scaling=1.0, scale_y=None,
                 scale_x=None):

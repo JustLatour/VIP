@@ -71,6 +71,7 @@ from ..config.utils_param import setup_parameters, separate_kwargs_dict
 from ..preproc.derotation import _find_indices_adi, _compute_pa_thresh
 from ..preproc import cube_rescaling_wavelengths as scwave
 from ..preproc import cube_rescaling_wavelengths_mp as scwave_mp
+from ..preproc import cube_rescaling_wavelengths_sm as scwave_sm
 from ..preproc import (
     cube_derotate,
     cube_collapse,
@@ -1472,10 +1473,12 @@ def _adimsdi_singlepca(
     if verbose:
         print("Rescaling the spectral channels to align the speckles")
 
-    big_cube = scwave_mp(cube, scale_list, full_output = True, inverse = False, 
+    big_cube = scwave_sm(cube, scale_list, full_output = True, inverse = False, 
                          y_in=y_in, x_in=x_in, imlib = imlib2, 
                          interpolation = interpolation, crop_ifs = crop_ifs, 
                          nproc = nproc, verbose = verbose)
+    
+    big_cube = np.swapaxes(big_cube, 0, 1)
 
     big_cube = big_cube.reshape(z * n, big_cube.shape[2], big_cube.shape[3])
 

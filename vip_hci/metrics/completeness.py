@@ -106,6 +106,9 @@ def masked_gaussian_convolution(image, mask, fwhm):
         mask = np.ones_like(image)
     mask = np.array(mask, dtype = bool)
     
+    if not np.isscalar(fwhm):
+        fwhm = np.mean(fwhm)
+    
     # Create Gaussian kernel
     sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
     kernel_size = 2 * int(3 * sigma) + 1
@@ -183,6 +186,9 @@ def return_stim_max(stim, mask = None, fwhm = 4, width = 1):
     y,x = stim.shape
 
     values = np.zeros(int(x/2))
+    
+    if not np.isscalar(fwhm):
+        fwhm = np.mean(fwhm)
 
     factor = 2 / width
     for r in range(int(x/2)):
@@ -494,7 +500,7 @@ def _stim_fc(
     sigposy = int(y / 2 + np.sin(b / n_fc * twopi) * a)
     sigposx = int(x / 2 + np.cos(b / n_fc * twopi) * a)
     
-    indc = disk((sigposy, sigposx), fwhm/1.5)
+    indc = disk((sigposy, sigposx), fwhm_med/1.5)
     
     this_a = np.where(an_dist == a)[0][0]
     
@@ -538,7 +544,7 @@ def _stim_fc(
                 
             result[i] = this_v - stim_thresh[i][3]
             
-        apertures = CircularAperture((sigposx, sigposy), fwhm / 2)
+        apertures = CircularAperture((sigposx, sigposy), fwhm_med / 2)
         this_flux = aperture_photometry(frame_fin[i], apertures)
         this_flux = np.array(this_flux["aperture_sum"])[0]
         recovered_flux = this_flux - stim_thresh[i][4][this_a,b]
@@ -1425,7 +1431,7 @@ def completeness_curve_stim(
                     yy[k,b] = sigposy
                     xx[k,b] = sigposx
                     
-                apertures = CircularAperture(np.array((xx[k], yy[k])).T, fwhm / 2)
+                apertures = CircularAperture(np.array((xx[k], yy[k])).T, np.mean(fwhm) / 2)
                 these_fluxes = aperture_photometry(frames[i], apertures)
                 these_fluxes = np.array(these_fluxes["aperture_sum"])
                 fluxes[k] = these_fluxes
