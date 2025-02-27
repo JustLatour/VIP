@@ -614,7 +614,7 @@ def pca(*all_args: List, **all_kwargs: dict):
                 **rot_options,
             )
             if isinstance(algo_params.ncomp, (int, float)):
-                cube_allfr_residuals, cube_adi_residuals, frame = res_pca
+                cube_allfr_residuals, cube_adi_residuals, cube_adi_residuals_, frame = res_pca
             elif isinstance(algo_params.ncomp, (tuple, list)):
                 if algo_params.source_xy is None:
                     if algo_params.full_output:
@@ -810,7 +810,7 @@ def pca(*all_args: List, **all_kwargs: dict):
             # ADI+mSDI single-pass PCA
             if isinstance(algo_params.ncomp, (float, int)):
                 if algo_params.full_output:
-                    return frame, cube_allfr_residuals, cube_adi_residuals
+                    return frame, cube_allfr_residuals, cube_adi_residuals, cube_adi_residuals_
                 else:
                     return frame
             # ADI+mSDI single-pass PCA grid
@@ -1567,7 +1567,7 @@ def _adimsdi_singlepca(
         frame = cube_collapse(der_res, mode=collapse, w=weights)
         cube_allfr_residuals = res_cube
         cube_adi_residuals = resadi_cube
-        return cube_allfr_residuals, cube_adi_residuals, frame
+        return cube_allfr_residuals, der_res, cube_adi_residuals, frame
 
     # When ncomp is a tuple, pca_grid is called
     elif isinstance(ncomp, (tuple, list)):

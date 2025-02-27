@@ -459,21 +459,27 @@ def _stim_fc(
         output_temp = algo(cube=cubefc, angle_list=angle_list, 
                          full_output = True, **algo_dict)
         
+        
         if len(cubefc.shape) == 4:
             if algo_dict['scale_list'] is None:
                 frame_fin = output_temp[0]
-                residuals_ = output_temp[4]
                 residuals = output_temp[3]
+                residuals_ = output_temp[4]
             else:
-                frame_fin = output_temp[0]
-                residuals_ = output_temp[2]
-                residuals = output_temp[1]
+                if (algo_dict['adimsdi'] == Adimsdi.DOUBLE or 
+                                   algo_dict['cube_ref'] is not None):
+                    frame_fin = output_temp[0]
+                    residuals = output_temp[1]
+                    residuals_ = output_temp[2]
+                else:
+                    frame_fin = output_temp[0]
+                    residuals = output_temp[2]
+                    residuals_ = output_temp[3]
                 
             to_collapse = False
-            if 'adimsdi' in algo_dict.keys():
-                if algo_dict['adimsdi'] == Adimsdi.SINGLE:
-                    to_collapse = True
-            else:
+            if algo_dict['cube_ref'] is not None:
+                to_collapse = True
+            if algo_dict['scale_list'] is None:
                 to_collapse = True
                 
             if to_collapse:
@@ -505,7 +511,7 @@ def _stim_fc(
     this_a = np.where(an_dist == a)[0][0]
     
     if nncomp == 1:
-        residuals = residuals_.reshape(1,residuals.shape[0], 
+        residuals = residuals.reshape(1,residuals.shape[0], 
                                     residuals.shape[1],residuals.shape[2])
         residuals_ = residuals_.reshape(1,residuals_.shape[0], 
                                     residuals_.shape[1],residuals_.shape[2])
@@ -1336,18 +1342,30 @@ def completeness_curve_stim(
                           **algo_dict)
             
             if len(cube.shape) == 4:
+                if 'adimsdi' not in algo_dict.keys():
+                    algo_dict['adimsdi'] = Adimsdi.SINGLE
+                if 'cube_ref' not in algo_dict.keys():
+                    algo_dict['cube_ref'] = None
+                if 'scale_list' not in algo_dict.keys():
+                    algo_dict['scale_list'] = None
+                    
                 if algo_dict['scale_list'] is None:
                     frames = output[0]
                     residuals = output[3]
                 else:
-                    frames = output[0]
-                    residuals = output[1]
-                    
+                    if (algo_dict['adimsdi'] == Adimsdi.DOUBLE or 
+                                       algo_dict['cube_ref'] is not None):
+                        frames = output[0]
+                        residuals = output[1]
+                    else:
+                        frames = output[0]
+                        residuals = output[2]
+                
+                
                 to_collapse = False
-                if 'adimsdi' in algo_dict.keys():
-                    if algo_dict['adimsdi'] == Adimsdi.SINGLE:
-                        to_collapse = True
-                else:
+                if algo_dict['cube_ref'] is not None:
+                    to_collapse = True
+                if algo_dict['scale_list'] is None:
                     to_collapse = True
                     
                 if to_collapse:
