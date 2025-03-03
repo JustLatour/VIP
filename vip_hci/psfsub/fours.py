@@ -451,6 +451,9 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         if verbose and (iteration + 1) % 2 == 0:
             print(f"Iteration {iteration + 1}: Objective = {loss.item()}")
         
+        if iteration == 1:
+            precision = precision * loss.item()
+        
         if loss.item() < limit:
             break;
 

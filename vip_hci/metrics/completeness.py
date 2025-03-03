@@ -390,7 +390,7 @@ def _stim_fc(
     conv=False,
     starphot=1
 ):
-    flevel = level * starphot
+    flevel = level * np.mean([starphot])
     cubefc = cube_inject_companions(
         cube,
         psf,
@@ -1466,9 +1466,17 @@ def completeness_curve_stim(
     if new_psf_size % 2 == 0:
         new_psf_size += 1
     # Normalize psf
-    psf = normalize_psf(
-        psf, fwhm=fwhm, verbose=False, size=min(new_psf_size, psf.shape[1])
-    )
+    if len(cube.shape) == 3:
+        psf = normalize_psf(
+            psf, fwhm=fwhm, verbose=False, size=min(new_psf_size, psf.shape[1])
+            )
+    else:
+        nch = cube.shape[0]
+        V = [normalize_psf(psf[i], fwhm[i], size=20, imlib='ndimage-fourier', force_odd = True, full_output = True) for i in range(0, nch, 1)]
+        psf, _, _ = [], [], []
+        for i in range(0, nch, 1):
+            psf.append(V[i][0])
+        psf = np.array(psf)
     
     nbr_to_detect = int(round(completeness * n_fc))
     max_missed = int(n_fc - nbr_to_detect)

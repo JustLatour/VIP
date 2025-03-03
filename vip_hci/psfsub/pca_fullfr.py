@@ -614,7 +614,7 @@ def pca(*all_args: List, **all_kwargs: dict):
                 **rot_options,
             )
             if isinstance(algo_params.ncomp, (int, float)):
-                cube_allfr_residuals, cube_adi_residuals, cube_adi_residuals_, frame = res_pca
+                cube_allfr_residuals, cube_adi_residuals_, cube_adi_residuals, frame = res_pca
             elif isinstance(algo_params.ncomp, (tuple, list)):
                 if algo_params.source_xy is None:
                     if algo_params.full_output:
