@@ -417,11 +417,11 @@ def _stim_fc(
     # Consider 3 cases depending on whether algo is (i) defined externally,
     # (ii) a VIP postproc algorithm; (iii) ineligible for contrast curves
     argl = getfullargspec(algo).args
+    algo_name = algo.__name__
     if "cube" in argl and "angle_list" in argl and "verbose" in argl:
         # (i) external algorithm with appropriate parameters [OK]
         pass
     else:
-        algo_name = algo.__name__
         idx = algo.__module__.index(
             '.', algo.__module__.index('.') + 1)
         mod = algo.__module__[:idx]
@@ -489,14 +489,26 @@ def _stim_fc(
             frame_fin = output_temp[0]
             residuals_ = output_temp[4]
             residuals = output_temp[3]
+    elif '4S' in algo_name:
+        output_temp = algo(cube=cubefc, angle_list=angle_list, 
+                         **algo_dict)
+        
+        frame_fin = output_temp[2]
+        residuals_ = output_temp[1]
+        residuals = output_temp[0]
 
-    ncomp = algo_dict['ncomp']
-    if np.isscalar(ncomp):
-        ncomp = np.array([ncomp])
+    if 'pca' in algo_name:
+        ncomp = algo_dict['ncomp']
+        if np.isscalar(ncomp):
+            ncomp = np.array([ncomp])
+        else:
+            ncomp = np.array(ncomp)
+        nncomp = len(ncomp)
+        result = np.zeros((nncomp))
     else:
-        ncomp = np.array(ncomp)
-    nncomp = len(ncomp)
-    result = np.zeros((nncomp))
+        nncomp = 1
+        result = np.zeros(1)
+        ncomp = [0]
     
     stim_map_fc = np.zeros((nncomp, frame_fin.shape[-2], frame_fin.shape[-1]))
     cy, cx = frame_center(frame_fin)
@@ -1383,6 +1395,12 @@ def completeness_curve_stim(
             
             residuals = output[0]
             frames = output[2]
+        elif '4S' in algo.__name__:
+            output = algo(cube=cube, angle_list=-angle_list, 
+                             **algo_dict)
+            
+            frames = output[2]
+            residuals_ = output[1]
         else:
             raise ValueError("algorithm not supported")
     else:
@@ -1422,11 +1440,6 @@ def completeness_curve_stim(
                 pxl_mask = np.where(this_inverse > 0)
                 
                 
-            if sigma is not None:
-                thresh = (stim_threshold[i,1]+sigma*stim_threshold[i,2])/stim_threshold[i,0]
-            else:
-                thresh = 1
-                
             if progressive_thr:
                 values = return_stim_max(this_inverse, mask, fwhm, width = width)
                 this_max = create_distance_interpolated_array(values, this_inverse.shape)
@@ -1455,7 +1468,61 @@ def completeness_curve_stim(
                 fluxes[k] = these_fluxes
             
             stim_threshold.append([this_max, np.mean(this_inverse[pxl_mask]), 
-                                   np.std(this_inverse[pxl_mask]), thresh, fluxes])
+                                   np.std(this_inverse[pxl_mask]), 1, fluxes])
+            
+            if sigma is not None:
+                stim_threshold[i,3] = (stim_threshold[i,1]+sigma*stim_threshold[i,2])/stim_threshold[i,0]
+                
+            
+    elif '4S' in algo.__name__:
+        this_inverse = stim_map(residuals_)
+        
+        if conv:
+            this_inverse = masked_gaussian_convolution(this_inverse, mask, fwhm)
+        
+        if mask is not None:
+            if np.isscalar(mask):
+                this_inverse = mask_circle(this_inverse, mask)
+            else:
+                this_inverse *= mask
+                
+            pxl_mask = np.where((mask == 1) & (this_inverse > 0))
+        else:
+            pxl_mask = np.where(this_inverse > 0)
+            
+        if progressive_thr:
+            values = return_stim_max(this_inverse, mask, fwhm, width = width)
+            this_max = create_distance_interpolated_array(values, this_inverse.shape)
+            this_max *= mask
+            this_max[np.where(this_max == 0)] = np.nanmax(this_max)
+        else:
+            this_max = np.nanmax(this_inverse)
+            
+            
+        y, x = frames.shape
+        twopi = 2 * np.pi
+        yy = np.zeros((len(an_dist), n_fc))
+        xx = np.zeros((len(an_dist), n_fc))
+        fluxes = np.zeros((len(an_dist), n_fc))
+        for k,a in enumerate(an_dist):
+            for b in range(n_fc):
+                sigposy = y / 2 + np.sin(b / n_fc * twopi) * a
+                sigposx = x / 2 + np.cos(b / n_fc * twopi) * a
+                
+                yy[k,b] = sigposy
+                xx[k,b] = sigposx
+                
+            apertures = CircularAperture(np.array((xx[k], yy[k])).T, np.mean(fwhm) / 2)
+            these_fluxes = aperture_photometry(frames, apertures)
+            these_fluxes = np.array(these_fluxes["aperture_sum"])
+            fluxes[k] = these_fluxes
+        
+        stim_threshold = []
+        stim_threshold.append([this_max, np.mean(this_inverse[pxl_mask]), 
+                               np.std(this_inverse[pxl_mask]), 1, fluxes])
+        
+        if sigma is not None:
+            stim_threshold[0,3] = (stim_threshold[0,1]+sigma*stim_threshold[0,2])/stim_threshold[0,0]
 
 
     completeness_curve = np.zeros((len(an_dist), 3))

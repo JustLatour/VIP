@@ -297,8 +297,19 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
             radius_mask = 0.75, L2_penalty = 0, iterations = 100, lr = 0.1,
             history_size = 10, max_iter = 20, limit = 0, verbose = False, 
             nproc = 1, imlib = "vip-fft", interpolation = "lanczos4", 
-            convolve = False, precision = 1e-9, save_memory = False,
-            var = False):
+            convolve = False, precision = 0.001, save_memory = False,
+            var = False, device = None):
+    
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if verbose:
+            print(f"Using device: {device}")
+    elif device != 'cpu' and device != 'cuda':
+        raise ValueError("Device not recognized. Must be either 'cuda' or 'cpu'")
+    elif device == 'cuda':
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if device == 'cpu':
+            print("'cuda' not available. Running on cpu instead.")
     
     if verbose:
         start = time.time()
@@ -329,14 +340,14 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
     else:
         psf_model, _  = construct_round_rfrr_template(fwhm, psf_template_in=psf_template)
         
-    psf_model = torch.tensor(psf_model, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+    psf_model = torch.tensor(psf_model, dtype=torch.float32, device = device).unsqueeze(0).unsqueeze(0)
     
     
     cyx = cube.shape[-1]/2
 
     mask_annular = np.zeros((y,x))
     mask_annular[yy,xx] = 1
-    mask_annular = torch.tensor(mask_annular, dtype = torch.float32)
+    mask_annular = torch.tensor(mask_annular, dtype = torch.float32, device = device)
 
     inter_images = []
     
@@ -344,15 +355,15 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
     annulus_mask[yy,xx] = 1
     
     nbr_pixels = len(yy)
-    input_data = torch.tensor(cube[:,yy,xx], dtype = torch.float32)
-    angle_list = torch.tensor(angle_list, dtype = torch.float32)
+    input_data = torch.tensor(cube[:,yy,xx], dtype = torch.float32, device = device)
+    angle_list = torch.tensor(angle_list, dtype = torch.float32, device = device)
     mean = torch.mean(input_data, axis = 0)
     std = torch.std(input_data, axis = 0)
     input_data = (input_data-mean)/std
     
-    matrix = torch.tensor(np.zeros((nbr_pixels, nbr_pixels)), dtype=torch.float32)
+    matrix = torch.tensor(np.zeros((nbr_pixels, nbr_pixels)), dtype=torch.float32, device = device)
     
-    mask_array = construct_rfrr_mask(annulus_mask, yy, xx, radius_mask * fwhm, nbr_pixels)
+    mask_array = construct_rfrr_mask(annulus_mask, yy, xx, radius_mask * fwhm, nbr_pixels).to(device)
          
     matrix.requires_grad_(True)
     
@@ -371,10 +382,10 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         sin_theta = torch.sin(radians)
 
         rotation_matrix = torch.stack(
-            [cos_theta, -sin_theta,torch.zeros(n),
-            sin_theta, cos_theta,torch.zeros(n)], dim=-1).view(-1, 2, 3)
+            [cos_theta, -sin_theta,torch.zeros(n, device = device),
+            sin_theta, cos_theta,torch.zeros(n, device = device)], dim=-1).view(-1, 2, 3)
 
-        all_grids = F.affine_grid(rotation_matrix, grid_size, align_corners = True)
+        all_grids = F.affine_grid(rotation_matrix, grid_size, align_corners = True).to(device)
 
     if convolve:
         # Calculate Gaussian parameters
@@ -405,7 +416,7 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
                 #    this_col_image[yy,xx] = this_col
                 #    this_conv = masked_gaussian_convolution(this_col_image, mask_annular, kernel, kernel_size)
                 #    this_matrix[:,p] = this_conv[yy,xx]
-                this_matrix_cube = torch.zeros((nbr_pixels, y, x))
+                this_matrix_cube = torch.zeros((nbr_pixels, y, x), device = device)
                 this_matrix_cube[:,yy,xx] = this_matrix_m
                 this_matrix_conv = F.conv2d(this_matrix_cube.unsqueeze(1),
                                        psf_model, padding = 'same').view(nbr_pixels,y,x)
@@ -415,7 +426,7 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
             
             output_data = input_data - torch.matmul(input_data, this_matrix)
             
-            cube_data = torch.zeros((n,y,x))
+            cube_data = torch.zeros((n,y,x), device = device)
             cube_data[:,yy,xx] = output_data
 
             if save_memory:
@@ -423,9 +434,9 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
             else:
                 cube_data_ = torch_cube_derotate_batch(cube_data, all_grids)
                 
-            inter_images.append(np.median(cube_data_.detach().numpy(), axis = 0))
+            inter_images.append(np.median(cube_data_.detach().cpu().numpy(), axis = 0))
         
-            output_data_ = torch.zeros((n, nbr_pixels))
+            output_data_ = torch.zeros((n, nbr_pixels), device = device)
             output_data_ = cube_data_[:,yy,xx]
             
             # Compute loss
@@ -463,12 +474,12 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         
         
     output_data = (input_data - torch.matmul(input_data, matrix))*std
-    output_data = output_data.detach().numpy()
+    output_data = output_data.detach().cpu().numpy()
     
     cube_data = np.zeros((n,y,x))
     cube_data[:,yy,xx] = output_data
 
-    angle_list = angle_list.detach().numpy()
+    angle_list = angle_list.detach().cpu().numpy()
     cube_data_ = cube_derotate(
                 cube_data,
                 angle_list,
@@ -488,4 +499,4 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         end = time.time()
         print('Algorithm ran for {} seconds'.format(end-start))
     
-    return cube_data, cube_data_, result, loss.item(), matrix.detach().numpy(), np.array(inter_images)
+    return cube_data, cube_data_, result, loss.item(), matrix.detach().cpu().numpy(), np.array(inter_images)
