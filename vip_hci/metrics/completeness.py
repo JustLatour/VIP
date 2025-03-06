@@ -1525,7 +1525,7 @@ def completeness_curve_stim(
             stim_threshold[0,3] = (stim_threshold[0,1]+sigma*stim_threshold[0,2])/stim_threshold[0,0]
 
 
-    completeness_curve = np.zeros((len(an_dist), 3))
+    completeness_curve = np.ones((len(an_dist), 3))
 
     # We crop the PSF and check if PSF has been normalized (so that flux in
     # 1*FWHM aperture = 1) and fix if needed
@@ -1637,6 +1637,12 @@ def completeness_curve_stim(
 
 
         completeness_curve[k,0] = level
+        
+        if level_bound[0] is None:
+            level_bound[0] = 1
+        if level_bound[1] is None:
+            level_bound[1] = 1
+        
         completeness_curve[k,1:] = level_bound
 
         if ii >= max_iter:

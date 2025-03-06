@@ -96,12 +96,74 @@ def construct_round_rfrr_template(radius,psf_template_in):
     return template, template_mask
 
 
+def construct_rfrr_mask2(cut_off_radius,
+                        psf_template_in,
+                        mask_in,
+                        nbr_pixels):
+
+    # 1.) Create the template
+    template, template_mask = construct_round_rfrr_template(
+        cut_off_radius,
+        psf_template_in)
+    
+    side = mask_in.shape[0]
+    regularization_mask = np.zeros((nbr_pixels, nbr_pixels))
+    opp_mask = np.zeros((nbr_pixels, nbr_pixels))
+    
+    if template_mask.shape[0] < side:
+        pad_size = int((side - template_mask.shape[0]) / 2)
+        padded_template = np.pad(template_mask, pad_size)
+    else:
+        padded_template = template_mask
+        
+    center = side // 2
+    pad = center
+    
+    if side % 2 == 1:
+        addon = 1
+    else:
+        addon = 0
+
+    yy,xx = np.where(mask_in == 1)
+
+    k = 0
+    for i in range(side):
+        for j in range(side):
+            if mask_in[i,j] != 1:
+                continue
+            this_image = np.zeros((side+2*pad, side+2*pad))
+            this_opp = np.zeros((side+2*pad, side+2*pad))
+            this_image[pad+i-pad:pad+i+pad+addon,pad+j-pad:pad+j+pad+addon] = padded_template
+            this_opp[pad+side-1-i-pad:pad+side-1-i+pad+addon,pad+side-1-j-pad:pad+side-1-j+pad+addon] = padded_template
+
+            this_image = this_image[pad:-pad, pad:-pad]
+            this_image = 1 - this_image
+            this_image *= mask_in
+
+            this_opp = this_opp[pad:-pad, pad:-pad]
+            this_opp = 1 - this_opp
+            this_opp *= mask_in
+
+            regularization_mask[:,k]=this_image[yy,xx]
+            opp_mask[:,k]=this_opp[yy,xx]
+        
+            k += 1
+            
+    
+    regularization_mask = torch.tensor(regularization_mask, dtype = torch.float32)
+    opp_mask = torch.tensor(opp_mask, dtype = torch.float32)
+    
+    return regularization_mask, opp_mask
+
+
+
 def construct_rfrr_mask(input_mask, yy, xx, radius_mask, nbr_pixels):
     
     y,x = input_mask.shape
     coord_ann = list(zip(yy,xx))
     
     mask_array = np.ones((nbr_pixels, nbr_pixels))
+    opp_array = np.ones((nbr_pixels, nbr_pixels))
     
     if radius_mask > 0:
         aperture = CircularAperture(np.array((xx, yy)).T, r=radius_mask)
@@ -112,22 +174,32 @@ def construct_rfrr_mask(input_mask, yy, xx, radius_mask, nbr_pixels):
     
     for ap in range(0, nbr_pixels):
         mask_copy = np.copy(input_mask)
+        opp_copy = np.copy(input_mask)
         if len(yy_m) > 0:
             mask_copy[yy_m[ap], xx_m[ap]] += 1
+            opp_copy[yy_m[nbr_pixels-ap-1], xx_m[nbr_pixels-ap-1]] += 1
         yy_mask,xx_mask = np.where(mask_copy == 2)
+        yy_opp,xx_opp = np.where(opp_copy == 2)
         coord_ap = set(zip(yy_mask, xx_mask))
+        coord_opp = set(zip(yy_opp, xx_opp))
         
-        indices = []
+        indices = [] 
+        indices_opp = []
         for i, coord in enumerate(coord_ann):
             if coord in coord_ap:
                 indices.append(i)
+            if coord in coord_opp:
+                indices_opp.append(i)
         indices = np.array(indices, dtype = int)
+        indices_opp = np.array(indices_opp, dtype = int)
         
         mask_array[indices,ap] = 0
+        opp_array[indices_opp,ap] = 0
         
     mask_array = torch.tensor(mask_array, dtype = torch.float32)
+    opp_array = torch.tensor(opp_array, dtype = torch.float32)
     
-    return mask_array
+    return mask_array, opp_array
 
 
 
@@ -296,6 +368,7 @@ def torch_cube_derotate_batch(array, grids):
 def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template = None,
             radius_mask = 0.75, L2_penalty = 0, iterations = 100, lr = 0.1,
             history_size = 10, max_iter = 20, limit = 0, verbose = False, 
+            L2_exempt = False, psf_mask = True, std_norm = True,
             nproc = 1, imlib = "vip-fft", interpolation = "lanczos4", 
             convolve = False, precision = 0.001, save_memory = False,
             var = False, device = None):
@@ -363,7 +436,12 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
     
     matrix = torch.tensor(np.zeros((nbr_pixels, nbr_pixels)), dtype=torch.float32, device = device)
     
-    mask_array = construct_rfrr_mask(annulus_mask, yy, xx, radius_mask * fwhm, nbr_pixels).to(device)
+    if psf_mask:
+        mask_array, opp_mask = construct_rfrr_mask2(radius_mask * fwhm,psf_template,annulus_mask,nbr_pixels)
+    else:
+        mask_array, opp_mask = construct_rfrr_mask(annulus_mask, yy, xx, radius_mask * fwhm, nbr_pixels)
+    mask_array = mask_array.to(device)
+    opp_mask = opp_mask.to(device)
          
     matrix.requires_grad_(True)
     
@@ -440,7 +518,11 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
             output_data_ = cube_data_[:,yy,xx]
             
             # Compute loss
-            L2 = L2_penalty*torch.sum(matrix**2)
+            if L2_exempt:
+                L2 = L2_penalty*torch.sum((matrix*opp_mask)**2)
+            else:
+                L2 = L2_penalty*torch.sum(matrix**2)
+                
             if var:
                 objective = torch.sum(torch.var(output_data_, axis=0))*n + L2
             else:
@@ -473,7 +555,10 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         prev = loss.item()
         
         
-    output_data = (input_data - torch.matmul(input_data, matrix))*std
+    if std_norm:
+        output_data = (input_data - torch.matmul(input_data, matrix))*std
+    else:
+        output_data = (input_data - torch.matmul(input_data, matrix))
     output_data = output_data.detach().cpu().numpy()
     
     cube_data = np.zeros((n,y,x))
