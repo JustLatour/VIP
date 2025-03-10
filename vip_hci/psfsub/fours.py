@@ -435,9 +435,6 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
     input_data = (input_data-mean)/std
     
     matrix = torch.tensor(np.zeros((nbr_pixels, nbr_pixels)), dtype=torch.float32, device = device)
-    #for i in range(nbr_pixels):
-    #    for j in range(nbr_pixels):
-    #        matrix[i,j] = i+2*j
     
     if psf_mask:
         mask_array, opp_mask = construct_rfrr_mask2(radius_mask * fwhm,psf_template,annulus_mask,nbr_pixels)
@@ -445,8 +442,6 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         mask_array, opp_mask = construct_rfrr_mask(annulus_mask, yy, xx, radius_mask * fwhm, nbr_pixels)
     mask_array = mask_array.to(device)
     opp_mask = opp_mask.to(device)
-    
-    plot_frames((mask_array.detach().cpu().numpy(), opp_mask.detach().cpu().numpy()))
          
     matrix.requires_grad_(True)
     
@@ -492,13 +487,6 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
             this_matrix_m = matrix * mask_array
             
             if convolve:
-                #this_col_image = torch.tensor(np.zeros((y, x)), dtype=torch.float32)
-                #this_matrix = torch.tensor(np.zeros((nbr_pixels, nbr_pixels)), dtype=torch.float32)
-                #for p in range(nbr_pixels):
-                #    this_col = this_matrix_m[:,p]
-                #    this_col_image[yy,xx] = this_col
-                #    this_conv = masked_gaussian_convolution(this_col_image, mask_annular, kernel, kernel_size)
-                #    this_matrix[:,p] = this_conv[yy,xx]
                 this_matrix_cube = torch.zeros((nbr_pixels, y, x), device = device)
                 this_matrix_cube[:,yy,xx] = this_matrix_m
                 #print('betas')
@@ -550,10 +538,6 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
             
             # Backward pass
             loss.backward()
-            
-            # Apply gradient mask
-            #with torch.no_grad():
-            #    matrix.grad *= mask_array
                 
             #print('gradient')
             #print(matrix.grad.shape)
