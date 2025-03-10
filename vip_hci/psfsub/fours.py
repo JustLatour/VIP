@@ -401,8 +401,8 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         yy,xx = get_annulus_segments(cube[0], inner_radius, asize, nsegm = 1, mode = 'ind')[0]
     else:
         yy,xx = np.meshgrid(np.arange(0,y), np.arange(0,y))
-        yy = yy.flatten()
-        xx = xx.flatten()
+        yy = yy.T.flatten()
+        xx = xx.T.flatten()
         
     n,y,x = cube.shape
         
@@ -435,6 +435,9 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
     input_data = (input_data-mean)/std
     
     matrix = torch.tensor(np.zeros((nbr_pixels, nbr_pixels)), dtype=torch.float32, device = device)
+    #for i in range(nbr_pixels):
+    #    for j in range(nbr_pixels):
+    #        matrix[i,j] = i+2*j
     
     if psf_mask:
         mask_array, opp_mask = construct_rfrr_mask2(radius_mask * fwhm,psf_template,annulus_mask,nbr_pixels)
@@ -442,6 +445,8 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         mask_array, opp_mask = construct_rfrr_mask(annulus_mask, yy, xx, radius_mask * fwhm, nbr_pixels)
     mask_array = mask_array.to(device)
     opp_mask = opp_mask.to(device)
+    
+    plot_frames((mask_array.detach().cpu().numpy(), opp_mask.detach().cpu().numpy()))
          
     matrix.requires_grad_(True)
     
@@ -455,7 +460,7 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
     if not save_memory:
         grid_size = torch.tensor(cube).unsqueeze(1).size()
         all_grids = []
-        radians = -angle_list * torch.pi / 180.0
+        radians = - torch.deg2rad(angle_list)
         cos_theta = torch.cos(radians)
         sin_theta = torch.sin(radians)
 
@@ -496,11 +501,23 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
                 #    this_matrix[:,p] = this_conv[yy,xx]
                 this_matrix_cube = torch.zeros((nbr_pixels, y, x), device = device)
                 this_matrix_cube[:,yy,xx] = this_matrix_m
+                #print('betas')
+                #print(this_matrix_cube.shape)
+                #print(this_matrix_cube)
                 this_matrix_conv = F.conv2d(this_matrix_cube.unsqueeze(1),
                                        psf_model, padding = 'same').view(nbr_pixels,y,x)
-                this_matrix = this_matrix_conv[:,yy,xx]
+                #.view does not put back data in the correct place. Need to transpose
+                this_matrix_t = this_matrix_conv[:,yy,xx]
+                this_matrix = this_matrix_t.T
             else:
                 this_matrix = this_matrix_m
+                
+            #print('betas after conv')
+            #print(this_matrix)
+            #print('noise')
+            #noise = torch.matmul(input_data, this_matrix.T)
+            #print(noise.shape)
+            #print(noise)
             
             output_data = input_data - torch.matmul(input_data, this_matrix)
             
@@ -529,12 +546,18 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
                 objective = torch.mean(torch.std(output_data_, axis=0))*n + L2
             loss = objective
             
+            #print(loss)
+            
             # Backward pass
             loss.backward()
             
             # Apply gradient mask
-            with torch.no_grad():
-                matrix.grad *= mask_array
+            #with torch.no_grad():
+            #    matrix.grad *= mask_array
+                
+            #print('gradient')
+            #print(matrix.grad.shape)
+            #print(matrix.grad)
                 
             return loss
     
