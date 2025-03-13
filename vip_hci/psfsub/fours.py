@@ -57,6 +57,17 @@ from photutils.aperture import aperture_photometry, CircularAperture
 import torch.nn.functional as F
 
 from hciplot import plot_frames
+import os
+
+def limit_cpu_cores(core_ids):
+    """Limit process to specific CPU cores."""
+    original_affinity = os.sched_getaffinity(0)  # Save original core set
+    os.sched_setaffinity(0, core_ids)            # Restrict to desired cores
+    return original_affinity  
+
+def restore_cpu_cores(original_affinity):
+    """Restore process to original CPU core affinity."""
+    os.sched_setaffinity(0, original_affinity)
 
 def pxs_coord(im_shape, apertures):
     
@@ -369,7 +380,7 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
             radius_mask = 0.75, L2_penalty = 0, iterations = 100, lr = 0.1,
             history_size = 10, max_iter = 20, limit = 0, verbose = False, 
             L2_exempt = False, psf_mask = True, std_norm = True,
-            nproc = 1, imlib = "vip-fft", interpolation = "lanczos4", 
+            nproc = None, imlib = "vip-fft", interpolation = "lanczos4", 
             convolve = False, precision = 0.001, save_memory = False,
             var = False, device = None):
     
@@ -390,7 +401,11 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
     n,y,x = cube.shape
     
     if nproc is not None:
-        torch.set_num_threads(int(nproc))
+        if isinstance(nproc, list):
+            original=limit_cpu_cores(nproc)
+        else:
+            raise ValueError("nproc must be None or a list")
+        
     
     if asize is not None:
         if y % 2 == 0:
@@ -564,6 +579,10 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
             break
         prev = loss.item()
         
+    
+    if nproc is not None:
+        nproc = None
+        restore_cpu_cores(original)
         
     if std_norm:
         output_data = (input_data - torch.matmul(input_data, matrix))*std
