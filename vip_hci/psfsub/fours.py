@@ -389,6 +389,9 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
     
     n,y,x = cube.shape
     
+    if nproc is not None:
+        torch.set_num_threads(int(nproc))
+    
     if asize is not None:
         if y % 2 == 0:
             new_size = (inner_radius + asize)*2 + 2
