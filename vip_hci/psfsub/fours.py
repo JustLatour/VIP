@@ -711,6 +711,9 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
     annulus_mask = np.zeros_like(cube[-1][0])
     annulus_mask[yy,xx] = 1
     
+    if len(angle_list.shape) == 1:
+        angle_list = np.array([angle_list for c in range(nch)])
+    
     nbr_pixels = len(yy)
     input_data = []
     angle_lists = []
