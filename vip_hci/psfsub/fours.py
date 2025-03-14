@@ -614,3 +614,302 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         print('Algorithm ran for {} seconds'.format(end-start))
     
     return cube_data, cube_data_, result, loss.item(), matrix.detach().cpu().numpy(), np.array(inter_images)
+
+
+
+def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template = None,
+            radius_mask = 0.75, L2_penalty = 0, iterations = 100, lr = 0.1,
+            history_size = 10, max_iter = 20, limit = 0, verbose = False, 
+            L2_exempt = False, psf_mask = True, std_norm = True,
+            nproc = None, imlib = "vip-fft", interpolation = "lanczos4", 
+            convolve = False, precision = 0.001, save_memory = False,
+            var = False, device = None):
+    
+    
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if verbose:
+            print(f"Using device: {device}")
+    elif device != 'cpu' and device != 'cuda':
+        raise ValueError("Device not recognized. Must be either 'cuda' or 'cpu'")
+    elif device == 'cuda':
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if device == 'cpu':
+            print("'cuda' not available. Running on cpu instead.")
+    
+    if verbose:
+        start = time.time()
+    
+    nch = len(big_cube)
+    n = np.zeros(nch, dtype = int)
+    y = np.zeros(nch, dtype = int)
+    x = np.zeros(nch, dtype = int)
+    for c in range(nch):
+        n[c],y[c],x[c] = big_cube[c].shape
+    
+    if nproc is not None:
+        if isinstance(nproc, list):
+            original=limit_cpu_cores(nproc)
+        else:
+            raise ValueError("nproc must be None or a list")
+        
+    
+    cube = []
+    if asize is not None:
+        if y[-1] % 2 == 0:
+            new_size = (inner_radius + asize)*2 + 2
+        else:
+            new_size = (inner_radius + asize)*2 + 3
+            
+        for c in range(nch):
+            if y[-1] > new_size:
+                cube.append(cube_crop_frames(big_cube[c], new_size, verbose = False))
+            else:
+                cube.append(big_cube[c])
+        
+        yy,xx = get_annulus_segments(cube[0][0], inner_radius, asize, nsegm = 1, mode = 'ind')[0]
+    else:
+        yy,xx = np.meshgrid(np.arange(0,y), np.arange(0,y))
+        yy = yy.T.flatten()
+        xx = xx.T.flatten()
+        
+        
+    n = np.zeros(nch, dtype = int)
+    y = np.zeros(nch, dtype = int)
+    x = np.zeros(nch, dtype = int)
+    total_im = np.zeros(nch+1, dtype = int)
+    for c in range(nch):
+        n[c],y[c],x[c] = cube[c].shape
+        total_im[c+1:] = total_im[c+1:] + n[c]
+    y = int(y[-1])
+    x = int(x[-1])
+        
+    if np.isscalar(fwhm):
+        fwhm = np.array([fwhm]*nch)
+    if len(psf_template.shape) < 3:
+        psf_template = [psf_template for c in range(nch)]
+        
+    psf_model = []
+    psf_size = int(np.max(fwhm)*3)
+    for c in range(nch):
+        if psf_template is None:
+            psf_model.append(construct_round_rfrr_template(fwhm[c], psf_template_in=np.ones((psf_size,psf_size)))[0])
+        else:
+            psf_model.append(construct_round_rfrr_template(fwhm[c], psf_template_in=psf_template[c])[0])
+        
+    psf_model = torch.tensor(np.array(psf_model), dtype=torch.float32, device = device).unsqueeze(0).unsqueeze(0)
+    
+    
+    cyx = cube[-1].shape[-1]/2
+
+    mask_annular = np.zeros((y,x))
+    mask_annular[yy,xx] = 1
+    mask_annular = torch.tensor(mask_annular, dtype = torch.float32, device = device)
+
+    inter_images = []
+    
+    annulus_mask = np.zeros_like(cube[-1][0])
+    annulus_mask[yy,xx] = 1
+    
+    nbr_pixels = len(yy)
+    input_data = []
+    angle_lists = []
+    mean = np.zeros((nch,nbr_pixels))
+    std = np.zeros((nch,nbr_pixels))
+    for c in range(nch):
+        input_data.append(torch.tensor(cube[c][:,yy,xx], dtype = torch.float32, device = device))
+        angle_lists.append(torch.tensor(angle_list[c], dtype = torch.float32, device = device))
+        mean[c] = torch.mean(input_data[c], axis = 0).to(torch.float32)
+        std[c] = torch.std(input_data[c], axis = 0).to(torch.float32)
+        input_data[c] = (input_data[c]-mean[c])/std[c]
+        input_data[c] = input_data[c].to(torch.float32)
+    
+    matrix = torch.tensor(np.zeros((nch,nbr_pixels, nbr_pixels)), dtype=torch.float32, device = device)
+    
+    mask_array = []
+    opp_mask = []
+    for c in range(nch):
+        if psf_mask:
+            this_mask_array, this_opp_mask = construct_rfrr_mask2(radius_mask * fwhm[c],psf_template,annulus_mask,nbr_pixels)
+        else:
+            this_mask_array, this_opp_mask = construct_rfrr_mask(annulus_mask, yy, xx, radius_mask * fwhm[c], nbr_pixels)
+
+        mask_array.append(this_mask_array)
+        opp_mask.append(this_opp_mask)
+        
+    mask_array = torch.tensor(np.array(mask_array), dtype = torch.float32, device = device)
+    opp_mask = torch.tensor(np.array(opp_mask), dtype = torch.float32, device = device)
+         
+    matrix.requires_grad_(True)
+    
+
+    optimizer = torch.optim.LBFGS([matrix], lr=lr, max_iter=max_iter, history_size=history_size)
+
+    #sigma = fwhm/(2*np.sqrt(2*np.log(2)))
+    #psf_model = gaussian_kernel(nbr_pixels, sigma)
+    #psf_model = psf_model.unsqueeze(0)
+    
+    if not save_memory:
+        all_grids = []
+        for c in range(nch):
+            grid_size = torch.tensor(cube[c]).unsqueeze(1).size()
+            radians = - torch.deg2rad(angle_lists[c])
+            cos_theta = torch.cos(radians)
+            sin_theta = torch.sin(radians)
+
+            rotation_matrix = torch.stack(
+                [cos_theta, -sin_theta,torch.zeros(int(n[c]), device = device),
+                 sin_theta, cos_theta,torch.zeros(int(n[c]), device = device)], dim=-1).view(-1, 2, 3)
+
+            all_grids.append(F.affine_grid(rotation_matrix, grid_size, align_corners = True).to(device))
+
+    kernel = []
+    if convolve:
+        # Calculate Gaussian parameters
+        for c in range(nch):
+            sigma = fwhm[c] / (2 * math.sqrt(2 * math.log(2)))
+            kernel_size = 2 * int(3 * sigma) + 1  # Ensure odd kernel size
+
+            # Generate Gaussian kernel
+            kernel.append(gaussian_kernel(kernel_size, sigma, matrix.device))
+            kernel[c] = kernel.unsqueeze(0).unsqueeze(0)  # Shape: [1, 1, H, W]
+        
+    #if convolve:
+    #    mask_norm = F.conv2d(torch.tensor(annulus_mask).unsqueeze(0).unsqueeze(0), psf_model).view(y,x)
+
+    prev = 0
+    # Optimization loop
+    torch.autograd.set_detect_anomaly(True)
+    for iteration in range(iterations):
+        # Zero the gradients
+        def closure():
+            optimizer.zero_grad()
+            
+            this_matrix_m = matrix * mask_array
+            
+            if convolve:
+                this_matrix_cube = torch.zeros((nch,nbr_pixels, y, x), device = device)
+                this_matrix_cube[:,:,yy,xx] = this_matrix_m
+                
+                this_matrix_conv = []
+                this_matrix_t = []
+                this_matrix = torch.zeros((nch,nbr_pixels,nbr_pixels))
+                for c in range(nch):
+                    this_matrix_conv.append(F.conv2d(this_matrix_cube[c].unsqueeze(1),
+                                       psf_model, padding = 'same').view(nbr_pixels,y,x))
+                    #.view does not put back data in the correct place. Need to transpose
+                    this_matrix_t.append(this_matrix_conv[:,yy,xx])
+                    this_matrix[c] = this_matrix_t[c].T
+            else:
+                this_matrix = this_matrix_m
+                
+                
+            #print('betas after conv')
+            #print(this_matrix)
+            #print('noise')
+            #noise = torch.matmul(input_data, this_matrix.T)
+            #print(noise.shape)
+            #print(noise)
+            
+            output_data = []
+            #cube_data = torch.zeros((total_im[-1], y, x))
+            cube_data_ = torch.zeros((total_im[-1], y, x))
+            for c in range(nch):
+                #input_data[c] = torch.tensor(input_data[c], dtype = torch.float32)
+                output_data.append(input_data[c] - torch.matmul(input_data[c], this_matrix[c]))
+            
+                #this_cube_data = torch.zeros((n[c],y,x))
+                #this_cube_data[:,yy,xx] = output_data[c]
+                cube_data = torch.zeros((n[c], y, x))
+                cube_data[:,yy,xx] = output_data[c]
+
+                if save_memory:
+                    cube_data_[total_im[c]:total_im[c+1]] = torch_cube_derotate(cube_data, angle_lists[c], cyx, n)
+                else:
+                    cube_data_[total_im[c]:total_im[c+1]] = torch_cube_derotate_batch(cube_data, all_grids[c])
+                
+            inter_images.append(np.median(cube_data_.detach().cpu().numpy(), axis = 0))
+        
+            output_data_ = torch.zeros((total_im[-1], nbr_pixels), device = device)
+            output_data_ = cube_data_[:,yy,xx]
+            
+            # Compute loss
+            if L2_exempt:
+                L2 = L2_penalty*torch.sum((matrix*opp_mask)**2)
+            else:
+                L2 = L2_penalty*torch.sum(matrix**2)
+                
+            if var:
+                objective = torch.sum(torch.var(output_data_, axis=0))*total_im[-1] + L2
+            else:
+                objective = torch.mean(torch.std(output_data_, axis=0))*total_im[-1] + L2
+            loss = objective
+            
+            #print(loss)
+            
+            # Backward pass
+            loss.backward()
+                
+            #print('gradient')
+            #print(matrix.grad.shape)
+            #print(matrix.grad)
+                
+            return loss
+    
+        # L-BFGS optimization step
+        loss = optimizer.step(closure)
+    
+        if verbose and (iteration + 1) % 2 == 0:
+            print(f"Iteration {iteration + 1}: Objective = {loss.item()}")
+        
+        if iteration == 1:
+            precision = precision * loss.item()
+        
+        if loss.item() < limit:
+            break;
+
+        if np.abs(loss.item() - prev) < precision:
+            break
+        prev = loss.item()
+        
+    
+    if nproc is not None:
+        nproc = None
+        restore_cpu_cores(original)
+        
+    cube_data = np.zeros((total_im[-1],y,x))
+    cube_data_ = np.zeros((total_im[-1],y,x))
+    for c in range(nch):
+        angle_lists[c] = angle_lists[c].detach().cpu().numpy()
+        input_data[c] = input_data[c].detach().cpu().numpy()
+    
+    output_data = []
+    matrix = matrix.detach().cpu().numpy()
+    for c in range(nch):
+        if std_norm:
+            output_data.append((input_data[c] - np.matmul(input_data[c], matrix[c]))*std[c])
+        else:
+            output_data.append((input_data[c] - np.matmul(input_data[c], matrix[c])))
+    
+        cube_data[total_im[c]:total_im[c+1],yy,xx] = output_data[c]
+
+        cube_data_[total_im[c]:total_im[c+1]] = cube_derotate(
+                cube_data[total_im[c]:total_im[c+1]],
+                angle_lists[c],
+                nproc=nproc,
+                imlib=imlib,
+                interpolation=interpolation, mask_val = 0, interp_zeros = True)
+    
+    
+    mask_annular = np.zeros((y,x))
+    mask_annular[yy,xx] = 1
+    cube_data_ *= mask_annular
+
+    result = np.median(cube_data_, axis = 0)
+    result *= mask_annular
+    
+    if verbose:
+        end = time.time()
+        print('Algorithm ran for {} seconds'.format(end-start))
+    
+    return cube_data, cube_data_, result, loss.item(), matrix, np.array(inter_images)
