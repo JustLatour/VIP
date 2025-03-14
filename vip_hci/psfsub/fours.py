@@ -717,13 +717,13 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
     nbr_pixels = len(yy)
     input_data = []
     angle_lists = []
-    mean = np.zeros((nch,nbr_pixels))
-    std = np.zeros((nch,nbr_pixels))
+    mean = torch.zeros((nch,nbr_pixels), device = device, dtype = torch.float32)
+    std = torch.zeros((nch,nbr_pixels), device = device, dtype = torch.float32)
     for c in range(nch):
         input_data.append(torch.tensor(cube[c][:,yy,xx], dtype = torch.float32, device = device))
         angle_lists.append(torch.tensor(angle_list[c], dtype = torch.float32, device = device))
-        mean[c] = torch.mean(input_data[c], axis = 0).to(torch.float32)
-        std[c] = torch.std(input_data[c], axis = 0).to(torch.float32)
+        mean[c] = torch.mean(input_data[c], axis = 0)
+        std[c] = torch.std(input_data[c], axis = 0)
         input_data[c] = (input_data[c]-mean[c])/std[c]
         input_data[c] = input_data[c].to(torch.float32)
     
@@ -816,14 +816,14 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
             
             output_data = []
             #cube_data = torch.zeros((total_im[-1], y, x))
-            cube_data_ = torch.zeros((total_im[-1], y, x))
+            cube_data_ = torch.zeros((total_im[-1], y, x), device = device)
             for c in range(nch):
                 #input_data[c] = torch.tensor(input_data[c], dtype = torch.float32)
                 output_data.append(input_data[c] - torch.matmul(input_data[c], this_matrix[c]))
             
                 #this_cube_data = torch.zeros((n[c],y,x))
                 #this_cube_data[:,yy,xx] = output_data[c]
-                cube_data = torch.zeros((n[c], y, x))
+                cube_data = torch.zeros((n[c], y, x), device = device)
                 cube_data[:,yy,xx] = output_data[c]
 
                 if save_memory:
@@ -885,6 +885,9 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
     for c in range(nch):
         angle_lists[c] = angle_lists[c].detach().cpu().numpy()
         input_data[c] = input_data[c].detach().cpu().numpy()
+        
+    std = std.detach().cpu().numpy()
+    mean = mean.detach().cpu().numpy()
     
     output_data = []
     matrix = matrix.detach().cpu().numpy()

@@ -29,7 +29,7 @@ Module with completeness curve and map generation function.
 """
 
 __author__ = "C.H. Dahlqvist, V. Christiaens, T. Bédrine"
-__all__ = ["completeness_curve", "completeness_map", "completeness_curve_stim"]
+__all__ = ["completeness_curve", "completeness_map", "completeness_curve_stim", "plot_fc_results"]
 
 from math import gcd
 from inspect import getfullargspec
@@ -585,16 +585,11 @@ def _stim_fc(
         #    result[i] = -1
             
         #print(mean_target0, mean_target1, mean_target2)
-
-    if b == 2:
-        from hciplot import plot_frames
-
-        #plot_frames(stim_map_fc)
         
     if nncomp == 1:
         result = result[0]
 
-    return result, b, stim_map_fc
+    return result, b, stim_map_fc, frame_fin
 
 
 # TODO: Include algo_class modifications in any tutorial using this function
@@ -1703,6 +1698,315 @@ def completeness_curve_stim(
         plt.show()
 
     return an_dist, completeness_curve
+
+
+
+def plot_fc_results(
+    cube,
+    angle_list,
+    psf,
+    fwhm,
+    algo,
+    an_dist=None,
+    starphot=1,
+    contrast=None,
+    n_fc=20,
+    conv=False,
+    progressive_thr=True,
+    width = 1.5,
+    mask=None,
+    algo_dict={},
+    verbose=True,
+    plot=True,
+    dpi=vip_figdpi,
+    save_plot=None,
+    object_name=None,
+    fix_y_lim=(),
+    imlib='vip-fft',
+    nproc=None,
+    figsize=vip_figsize,
+    algo_class=None,
+    ):
+
+    if cube.ndim != 3 and cube.ndim != 4:
+        raise TypeError("The input array is not a 3d or 4d cube")
+    if cube.ndim == 3 and (cube.shape[0] != angle_list.shape[0]):
+        raise TypeError("Input parallactic angles vector has wrong length")
+    if cube.ndim == 4 and (cube.shape[1] != angle_list.shape[0]):
+        raise TypeError("Input parallactic angles vector has wrong length")
+    if cube.ndim == 3 and psf.ndim != 2:
+        raise TypeError("Template PSF is not a frame (for ADI case)")
+    if cube.ndim == 4 and psf.ndim != 3:
+        raise TypeError("Template PSF is not a cube (for ADI+IFS case)")
+    if nproc is None:
+        nproc = cpu_count() // 2
+
+    if isinstance(fwhm, (np.ndarray, list)):
+        fwhm_med = np.median(fwhm)
+    else:
+        fwhm_med = fwhm
+
+    if an_dist is None:
+        max_dist = int((cube.shape[-1]//2)/fwhm)
+        an_dist = np.arange(1, max_dist,1)*fwhm
+    if np.isscalar(an_dist):
+        an_dist = np.array([an_dist])
+    if contrast is None:
+        contrast = 5e-3/an_dist
+    if np.isscalar(contrast):
+        contrast = np.array([contrast])
+
+
+    # TODO: Clean below?
+    # Consider 3 cases depending on whether algo is (i) defined externally,
+    # (ii) a VIP postproc algorithm; (iii) ineligible for contrast curves
+    argl = getfullargspec(algo).args
+    if "cube" in argl and "angle_list" in argl and "verbose" in argl:
+        # (i) external algorithm with appropriate parameters [OK]
+        pass
+    else:
+        algo_name = algo.__name__
+        idx = algo.__module__.index(
+            '.', algo.__module__.index('.') + 1)
+        mod = algo.__module__[:idx]
+        tmp = __import__(
+            mod, fromlist=[algo_name.upper()+'_Params'])
+        algo_params = getattr(tmp, algo_name.upper()+'_Params')
+        argl = [attr for attr in vars(algo_params)]
+        if "cube" in argl and "angle_list" in argl and "verbose" in argl:
+            # (ii) a VIP postproc algorithm [OK]
+            pass
+        else:
+            # (iii) ineligible routine for contrast curves [Raise error]
+            msg = "Ineligible algo for contrast curve function. algo should "
+            msg += "have parameters 'cube', 'angle_list' and 'verbose'"
+            raise TypeError(msg)
+
+    if "cube" in argl and "angle_list" in argl:
+        if algo.__name__ == 'pca':
+            output = algo(cube=cube,
+                          angle_list=angle_list,
+                          verbose=False,
+                          full_output = True,
+                          **algo_dict)
+            
+            if len(cube.shape) == 4:
+                if 'adimsdi' not in algo_dict.keys():
+                    algo_dict['adimsdi'] = Adimsdi.SINGLE
+                if 'cube_ref' not in algo_dict.keys():
+                    algo_dict['cube_ref'] = None
+                if 'scale_list' not in algo_dict.keys():
+                    algo_dict['scale_list'] = None
+                    
+                if algo_dict['scale_list'] is None:
+                    frames = output[0]
+                    residuals = output[3]
+                    residuals_ = output[4]
+                else:
+                    if (algo_dict['adimsdi'] == Adimsdi.DOUBLE or 
+                                       algo_dict['cube_ref'] is not None):
+                        frames = output[0]
+                        residuals = output[1]
+                        residuals_ = output[2]
+                    else:
+                        frames = output[0]
+                        residuals = output[2]
+                        residuals_ = output[3]
+                
+                to_collapse = False
+                if algo_dict['cube_ref'] is not None:
+                    to_collapse = True
+                if algo_dict['scale_list'] is None:
+                    to_collapse = True
+                    
+                if to_collapse:
+                    residuals = get_adi_res(residuals)
+            else:
+                frames = output[0]
+                residuals = output[3]
+                residuals_ = output[4]
+                
+        elif algo.__name__ == 'pca_annular':
+            output = algo(cube=cube,
+                          angle_list=angle_list,
+                          verbose=False,
+                          full_output = True,
+                          **algo_dict)
+            
+            residuals = output[0]
+            residuals_ = output[1]
+            frames = output[2]
+        elif '4S' in algo.__name__:
+            output = algo(cube=cube, angle_list=-angle_list, 
+                             **algo_dict)
+            
+            direct = algo(cube=cube, angle_list=angle_list, 
+                             **algo_dict)
+            frames = direct[2]
+            residuals = direct[1]
+            residuals_ = output[1]
+        else:
+            raise ValueError("algorithm not supported")
+    else:
+        raise ValueError("'cube' and 'angle_list' must be arguments of algo")
+
+    if 'pca' in algo.__name__:
+        ncomp = algo_dict['ncomp']
+        if np.isscalar(ncomp):
+            ncomp = np.array([ncomp])
+        else:
+            ncomp = np.array(ncomp)
+    
+        nncomp = len(ncomp)
+        
+        stim_threshold = []
+        
+        if nncomp == 1:
+            residuals = residuals.reshape(1,residuals.shape[0], 
+                                        residuals.shape[1],residuals.shape[2])
+            residuals_ = residuals_.reshape(1,residuals.shape[0], 
+                                        residuals.shape[1],residuals.shape[2])
+            frames = frames.reshape(1, frames.shape[0], frames.shape[1])
+        
+        this_stim = np.zeros_like(frames)
+        for i,n in enumerate(ncomp):
+            this_inverse = inverse_stim_map(residuals[i], angle_list, 
+                            imlib=imlib, nproc = nproc)
+            
+            if conv:
+                this_inverse = masked_gaussian_convolution(this_inverse, mask, fwhm)
+            
+            if mask is not None:
+                if np.isscalar(mask):
+                    this_inverse = mask_circle(this_inverse, mask)
+                else:
+                    this_inverse *= mask
+                    
+                pxl_mask = np.where((mask == 1) & (this_inverse > 0))
+            else:
+                pxl_mask = np.where(this_inverse > 0)
+                
+                
+            if progressive_thr:
+                values = return_stim_max(this_inverse, mask, fwhm, width = width)
+                this_max = create_distance_interpolated_array(values, this_inverse.shape)
+                this_max *= mask
+                this_max[np.where(this_max == 0)] = np.nanmax(this_max)
+            else:
+                this_max = np.nanmax(this_inverse)
+                
+                
+            y, x = frames[i].shape
+            twopi = 2 * np.pi
+            yy = np.zeros((len(an_dist), n_fc))
+            xx = np.zeros((len(an_dist), n_fc))
+            fluxes = np.zeros((len(an_dist), n_fc))
+            for k,a in enumerate(an_dist):
+                for b in range(n_fc):
+                    sigposy = y / 2 + np.sin(b / n_fc * twopi) * a
+                    sigposx = x / 2 + np.cos(b / n_fc * twopi) * a
+                    
+                    yy[k,b] = sigposy
+                    xx[k,b] = sigposx
+                    
+                apertures = CircularAperture(np.array((xx[k], yy[k])).T, np.mean(fwhm) / 2)
+                these_fluxes = aperture_photometry(frames[i], apertures)
+                these_fluxes = np.array(these_fluxes["aperture_sum"])
+                fluxes[k] = these_fluxes
+            
+            stim_threshold.append([this_max, np.mean(this_inverse[pxl_mask]), 
+                                   np.std(this_inverse[pxl_mask]), 1, fluxes])
+            
+            this_stim[i] = stim_map(residuals_[i])/this_max
+    
+    elif '4S' in algo.__name__:
+        this_inverse = stim_map(residuals_)
+        
+        if conv:
+            this_inverse = masked_gaussian_convolution(this_inverse, mask, fwhm)
+        
+        if mask is not None:
+            if np.isscalar(mask):
+                this_inverse = mask_circle(this_inverse, mask)
+            else:
+                this_inverse *= mask
+                
+            pxl_mask = np.where((mask == 1) & (this_inverse > 0))
+        else:
+            pxl_mask = np.where(this_inverse > 0)
+            
+        if progressive_thr:
+            values = return_stim_max(this_inverse, mask, fwhm, width = width)
+            this_max = create_distance_interpolated_array(values, this_inverse.shape)
+            this_max *= mask
+            this_max[np.where(this_max == 0)] = np.nanmax(this_max)
+        else:
+            this_max = np.nanmax(this_inverse)
+            
+        this_stim = stim_map(residuals)/this_max
+            
+            
+        y, x = frames.shape
+        twopi = 2 * np.pi
+        yy = np.zeros((len(an_dist), n_fc))
+        xx = np.zeros((len(an_dist), n_fc))
+        fluxes = np.zeros((len(an_dist), n_fc))
+        for k,a in enumerate(an_dist):
+            for b in range(n_fc):
+                sigposy = y / 2 + np.sin(b / n_fc * twopi) * a
+                sigposx = x / 2 + np.cos(b / n_fc * twopi) * a
+                
+                yy[k,b] = sigposy
+                xx[k,b] = sigposx
+                
+            apertures = CircularAperture(np.array((xx[k], yy[k])).T, np.mean(fwhm) / 2)
+            these_fluxes = aperture_photometry(frames, apertures)
+            these_fluxes = np.array(these_fluxes["aperture_sum"])
+            fluxes[k] = these_fluxes
+        
+        stim_threshold = []
+        stim_threshold.append([this_max, np.mean(this_inverse[pxl_mask]), 
+                               np.std(this_inverse[pxl_mask]), 1, fluxes])
+
+    # We crop the PSF and check if PSF has been normalized (so that flux in
+    # 1*FWHM aperture = 1) and fix if needed
+    new_psf_size = int(round(3 * fwhm_med))
+    if new_psf_size % 2 == 0:
+        new_psf_size += 1
+    # Normalize psf
+    if len(cube.shape) == 3:
+        psf = normalize_psf(
+            psf, fwhm=fwhm, verbose=False, size=min(new_psf_size, psf.shape[1])
+            )
+    else:
+        nch = cube.shape[0]
+        V = [normalize_psf(psf[i], fwhm[i], size=20, imlib='ndimage-fourier', force_odd = True, full_output = True) for i in range(0, nch, 1)]
+        psf, _, _ = [], [], []
+        for i in range(0, nch, 1):
+            psf.append(V[i][0])
+        psf = np.array(psf)
+    
+
+    nbr_dist = len(an_dist)
+    images = np.zeros((nbr_dist,n_fc, cube.shape[-1], cube.shape[-1]))
+    stim_maps = np.zeros((nbr_dist,n_fc, cube.shape[-1], cube.shape[-1]))
+    
+    for k in range(nbr_dist):
+        a = an_dist[k]
+        level = contrast[k]
+
+        if verbose:
+            print("*** Injecting fake companions at r = {} ***".format(a))
+
+        for b in range(0,n_fc):
+            this_result = _stim_fc(a,an_dist,b,level, n_fc, cube, psf, angle_list, 
+                        fwhm, algo, algo_dict, stim_threshold, 0, 
+                        mask, conv, starphot)
+            
+            images[k,b] = this_result[3]
+            stim_maps[k,b] = this_result[2]
+
+    return frames, this_stim, images, stim_maps
 
 
 def completeness_curve_stim_pca(
