@@ -392,6 +392,8 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         raise ValueError("Device not recognized. Must be either 'cuda' or 'cpu'")
     elif device == 'cuda':
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if verbose:
+            print(f'Using device: {device}')
         if device == 'cpu':
             print("'cuda' not available. Running on cpu instead.")
     
@@ -634,6 +636,8 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
         raise ValueError("Device not recognized. Must be either 'cuda' or 'cpu'")
     elif device == 'cuda':
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if verbose:
+            print(f'Using device: {device}')
         if device == 'cpu':
             print("'cuda' not available. Running on cpu instead.")
     
