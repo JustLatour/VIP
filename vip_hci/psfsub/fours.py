@@ -67,6 +67,8 @@ from pathlib import Path
 import shutil
 from vip_hci.fits import open_fits
 
+
+
 def FourS_wrapper(cube, angs, psfn, fwhm, work_dir,lambda_reg = 10, rrmask = 1.5, 
                   num_epochs = 10, verbose = True, device = 0):
     these_angs = np.deg2rad(angs)
@@ -104,7 +106,7 @@ def FourS_wrapper(cube, angs, psfn, fwhm, work_dir,lambda_reg = 10, rrmask = 1.5
     shutil.rmtree(work_dir + '/tensorboard', ignore_errors=True)
     shutil.rmtree(work_dir + '/models', ignore_errors=True)
 
-    return mean, median, np.array(res.squeeze(1)), np.array(res_.squeeze(1)), iterations
+    return np.array(res.squeeze(1)), np.array(res_.squeeze(1)), np.array(median), iterations
 
 
 

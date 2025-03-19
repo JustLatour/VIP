@@ -489,7 +489,7 @@ def _stim_fc(
             frame_fin = output_temp[0]
             residuals_ = output_temp[4]
             residuals = output_temp[3]
-    elif '4S' in algo_name:
+    elif '4S' in algo_name or 'FourS' in algo_name:
         output_temp = algo(cube=cubefc, angle_list=angle_list, 
                          **algo_dict)
         
@@ -1390,7 +1390,7 @@ def completeness_curve_stim(
             
             residuals = output[0]
             frames = output[2]
-        elif '4S' in algo.__name__:
+        elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
             output = algo(cube=cube, angle_list=-angle_list, 
                              **algo_dict)
             
@@ -1469,7 +1469,7 @@ def completeness_curve_stim(
                 stim_threshold[i,3] = (stim_threshold[i,1]+sigma*stim_threshold[i,2])/stim_threshold[i,0]
                 
             
-    elif '4S' in algo.__name__:
+    elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
         this_inverse = stim_map(residuals_)
         
         if conv:
