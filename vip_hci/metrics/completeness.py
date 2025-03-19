@@ -1919,7 +1919,7 @@ def plot_fc_results(
             
             this_stim[i] = stim_map(residuals_[i])/this_max
     
-    elif '4S' in algo.__name__:
+    elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
         this_inverse = stim_map(residuals_)
         
         if conv:
