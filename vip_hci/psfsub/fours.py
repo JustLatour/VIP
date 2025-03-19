@@ -69,9 +69,9 @@ from vip_hci.fits import open_fits
 
 
 
-def FourS_wrapper(cube, angs, psfn, fwhm, work_dir,lambda_reg = 10, rrmask = 1.5, 
+def FourS_wrapper(cube, angle_list, psfn, fwhm, work_dir,lambda_reg = 10, rrmask = 1.5, 
                   num_epochs = 10, verbose = True, device = 0):
-    these_angs = np.deg2rad(angs)
+    these_angs = np.deg2rad(angle_list)
 
     s4_model = FourS(
         science_cube=cube,

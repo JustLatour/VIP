@@ -1836,7 +1836,7 @@ def plot_fc_results(
             residuals = output[0]
             residuals_ = output[1]
             frames = output[2]
-        elif '4S' in algo.__name__:
+        elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
             output = algo(cube=cube, angle_list=-angle_list, 
                              **algo_dict)
             
