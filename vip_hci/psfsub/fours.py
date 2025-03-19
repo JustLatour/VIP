@@ -59,6 +59,56 @@ import torch.nn.functional as F
 from hciplot import plot_frames
 import os
 
+from fours.models.psf_subtraction import FourS
+from fours.utils.pca import pca_psf_subtraction_gpu
+from fours.utils.data_handling import save_as_fits
+from fours.utils.data_handling import read_fours_root_dir
+from pathlib import Path
+import shutil
+from vip_hci.fits import open_fits
+
+def FourS_wrapper(cube, angs, psfn, fwhm, work_dir,lambda_reg = 10, rrmask = 1.5, 
+                  num_epochs = 10, verbose = True, device = 0):
+    these_angs = np.deg2rad(angs)
+
+    s4_model = FourS(
+        science_cube=cube,
+        adi_angles=these_angs,
+        psf_template=psfn,
+        device=device,
+        work_dir=work_dir,
+        verbose=verbose,
+        rotation_grid_subsample=1,
+        noise_model_lambda=lambda_reg,
+        psf_fwhm=fwhm,
+        right_reason_mask_factor=rrmask)
+
+    s4_model.fit_noise_model(
+        num_epochs=num_epochs,
+        training_name="Im-" + str(lambda_reg),
+        logging_interval=1)
+
+    mean, median, res, res_ = s4_model.compute_residuals()
+
+    iterations = []
+    folder_name = work_dir + '/residuals/' + os.listdir(work_dir + '/residuals')[0]
+    image_names = os.listdir(folder_name)
+    for f in image_names:
+        if 'Mean' in f:
+            continue
+        it = open_fits(folder_name + '/' + f, verbose = False)
+        iterations.append(it)
+    iterations = np.array(iterations)
+
+    shutil.rmtree(work_dir + '/residuals', ignore_errors=True)
+    shutil.rmtree(work_dir + '/tensorboard', ignore_errors=True)
+    shutil.rmtree(work_dir + '/models', ignore_errors=True)
+
+    return mean, median, np.array(res.squeeze(1)), np.array(res_.squeeze(1)), iterations
+
+
+
+
 def limit_cpu_cores(core_ids):
     """Limit process to specific CPU cores."""
     original_affinity = os.sched_getaffinity(0)  # Save original core set
