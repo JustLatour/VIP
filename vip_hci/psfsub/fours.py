@@ -452,7 +452,7 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
     if verbose:
         start = time.time()
     
-    n,y,x = cube.shape
+    n0,y0,x0 = cube.shape
     
     if nproc is not None:
         if isinstance(nproc, list):
@@ -461,18 +461,20 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
             raise ValueError("nproc must be None or a list")
         
     
+    cropped = False
     if asize is not None:
-        if y % 2 == 0:
+        if y0 % 2 == 0:
             new_size = (inner_radius + asize)*2 + 2
         else:
             new_size = (inner_radius + asize)*2 + 3
     
-        if y > new_size:
+        if y0 > new_size:
             cube = cube_crop_frames(cube, new_size, verbose = False)
+            cropped = True
         
         yy,xx = get_annulus_segments(cube[0], inner_radius, asize, nsegm = 1, mode = 'ind')[0]
     else:
-        yy,xx = np.meshgrid(np.arange(0,y), np.arange(0,y))
+        yy,xx = np.meshgrid(np.arange(0,y0), np.arange(0,y0))
         yy = yy.T.flatten()
         xx = xx.T.flatten()
         
@@ -666,8 +668,16 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
     if verbose:
         end = time.time()
         print('Algorithm ran for {} seconds'.format(end-start))
+        
+    inter_images = np.array(inter_images)
+    if cropped:
+        pad = (y0-y)/2
+        result = np.pad(result, (pad,pad), mode = 'constant', constant_values = (0,0))
+        cube_data = np.pad(cube_data, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
+        cube_data_ = np.pad(cube_data_, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
+        inter_images = np.pad(inter_images, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
     
-    return cube_data, cube_data_, result, loss.item(), matrix.detach().cpu().numpy(), np.array(inter_images)
+    return cube_data, cube_data_, result, loss.item(), matrix.detach().cpu().numpy(), inter_images
 
 
 
@@ -703,6 +713,8 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
     for c in range(nch):
         n[c],y[c],x[c] = big_cube[c].shape
     
+    n0, y0, x0 = big_cube[0].shape
+    
     if nproc is not None:
         if isinstance(nproc, list):
             original=limit_cpu_cores(nproc)
@@ -711,6 +723,7 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
         
     
     cube = []
+    cropped = False
     if asize is not None:
         if y[-1] % 2 == 0:
             new_size = (inner_radius + asize)*2 + 2
@@ -720,6 +733,7 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
         for c in range(nch):
             if y[-1] > new_size:
                 cube.append(cube_crop_frames(big_cube[c], new_size, verbose = False))
+                cropped = True
             else:
                 cube.append(big_cube[c])
         
@@ -973,5 +987,13 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
     if verbose:
         end = time.time()
         print('Algorithm ran for {} seconds'.format(end-start))
+        
+    inter_images = np.array(inter_images)
+    if cropped:
+        pad = (y0-y)/2
+        result = np.pad(result, (pad,pad), mode = 'constant', constant_values = (0,0))
+        cube_data = np.pad(cube_data, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
+        cube_data_ = np.pad(cube_data_, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
+        inter_images = np.pad(inter_images, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
     
-    return cube_data, cube_data_, result, loss.item(), matrix, np.array(inter_images)
+    return cube_data, cube_data_, result, loss.item(), matrix, inter_images
