@@ -440,14 +440,21 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         if verbose:
             print(f"Using device: {device}")
-    elif device != 'cpu' and device != 'cuda':
-        raise ValueError("Device not recognized. Must be either 'cuda' or 'cpu'")
-    elif device == 'cuda':
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    elif 'cuda' in device:
+        if not torch.cuda.is_available():
+            device = torch.device('cpu')
+        max_nbr = int(torch.cuda.device_count())
+        device_names = ['cuda:'+str(i) for i in range(max_nbr)]
+        if device not in device_names:
+            device = torch.device('cuda')
+        else:
+            device = torch.device(device)
         if verbose:
             print(f'Using device: {device}')
         if device == 'cpu':
             print("'cuda' not available. Running on cpu instead.")
+    elif device != 'cpu' and device != 'cuda':
+        raise ValueError("Device not recognized. Must be either 'cuda' or 'cpu'")
     
     if verbose:
         start = time.time()
@@ -694,14 +701,21 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         if verbose:
             print(f"Using device: {device}")
-    elif device != 'cpu' and device != 'cuda':
-        raise ValueError("Device not recognized. Must be either 'cuda' or 'cpu'")
-    elif device == 'cuda':
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    elif 'cuda' in device:
+        if not torch.cuda.is_available():
+            device = torch.device('cpu')
+        max_nbr = int(torch.cuda.device_count())
+        device_names = ['cuda:'+str(i) for i in range(max_nbr)]
+        if device not in device_names:
+            device = torch.device('cuda')
+        else:
+            device = torch.device(device)
         if verbose:
             print(f'Using device: {device}')
         if device == 'cpu':
             print("'cuda' not available. Running on cpu instead.")
+    elif device != 'cpu' and device != 'cuda':
+        raise ValueError("Device not recognized. Must be either 'cuda' or 'cpu'")
     
     if verbose:
         start = time.time()
