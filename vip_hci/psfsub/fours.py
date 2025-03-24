@@ -671,7 +671,7 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         
     inter_images = np.array(inter_images)
     if cropped:
-        pad = (y0-y)/2
+        pad = int((y0-y)/2)
         result = np.pad(result, (pad,pad), mode = 'constant', constant_values = (0,0))
         cube_data = np.pad(cube_data, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
         cube_data_ = np.pad(cube_data_, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
@@ -990,7 +990,7 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
         
     inter_images = np.array(inter_images)
     if cropped:
-        pad = (y0-y)/2
+        pad = int((y0-y)/2)
         result = np.pad(result, (pad,pad), mode = 'constant', constant_values = (0,0))
         cube_data = np.pad(cube_data, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
         cube_data_ = np.pad(cube_data_, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
