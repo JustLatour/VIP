@@ -408,6 +408,34 @@ def torch_cube_derotate(array, angle_list, cyx, n):
     return array_der
 
 
+def torch_cube_derotate_batch_markus(array, grids):
+    """Rotate a cube (3d array or image sequence) providing a vector or\
+    corresponding angles.
+
+    Serves for rotating an ADI sequence to a common north given a vector with
+    the corresponding parallactic angles for each frame.
+
+    Returns
+    -------
+    array_der : numpy ndarray
+        Resulting cube with de-rotated frames.
+
+    """
+    array_der = torch.zeros_like(array)
+
+    with torch.backends.cudnn.flags(enabled=False):
+        array_der = F.grid_sample(array.unsqueeze(1), grids, mode = 'bicubic', align_corners = True)
+    
+    output_dimensions = (31,31)
+
+    rotated_data = F.interpolate(array_der,
+                                 output_dimensions,
+                                 mode="bicubic",
+                                 align_corners=True)
+            
+    return rotated_data#.squeeze(1)
+
+
 def torch_cube_derotate_batch(array, grids):
     """Rotate a cube (3d array or image sequence) providing a vector or\
     corresponding angles.
@@ -423,9 +451,9 @@ def torch_cube_derotate_batch(array, grids):
     """
     array_der = torch.zeros_like(array)
 
-    array_der = F.grid_sample(array.unsqueeze(1), grids, mode = 'bicubic', align_corners = True).squeeze(1)
+    array_der = F.grid_sample(array.unsqueeze(1), grids, mode = 'bicubic', align_corners = True)
             
-    return array_der
+    return array_der.squeeze(1)
 
 
 def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template = None,
@@ -521,13 +549,16 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         mask_array, opp_mask = construct_rfrr_mask2(radius_mask * fwhm,psf_template,annulus_mask,nbr_pixels)
     else:
         mask_array, opp_mask = construct_rfrr_mask(annulus_mask, yy, xx, radius_mask * fwhm, nbr_pixels)
+        
+    plot_frames(np.array(mask_array))
+    
     mask_array = mask_array.to(device)
     opp_mask = opp_mask.to(device)
          
     matrix.requires_grad_(True)
     
 
-    optimizer = torch.optim.LBFGS([matrix], lr=lr, max_iter=max_iter, history_size=history_size)
+    optimizer = torch.optim.LBFGS([matrix],max_iter=max_iter, history_size=history_size)
 
     #sigma = fwhm/(2*np.sqrt(2*np.log(2)))
     #psf_model = gaussian_kernel(nbr_pixels, sigma)
@@ -573,6 +604,7 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
                 #print('betas')
                 #print(this_matrix_cube.shape)
                 #print(this_matrix_cube)
+
                 this_matrix_conv = F.conv2d(this_matrix_cube.unsqueeze(1),
                                        psf_model, padding = 'same').view(nbr_pixels,y,x)
                 #.view does not put back data in the correct place. Need to transpose
@@ -581,14 +613,16 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
             else:
                 this_matrix = this_matrix_m
                 
-            #print('betas after conv')
-            #print(this_matrix)
-            #print('noise')
-            #noise = torch.matmul(input_data, this_matrix.T)
+            print('betas after conv')
+            print(this_matrix)
+            print('noise')
+            noise = torch.matmul(input_data, this_matrix)
             #print(noise.shape)
             #print(noise)
             
             output_data = input_data - torch.matmul(input_data, this_matrix)
+            print('residuals')
+            print(output_data)
             
             cube_data = torch.zeros((n,y,x), device = device)
             cube_data[:,yy,xx] = output_data
@@ -597,6 +631,10 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
                 cube_data_ = torch_cube_derotate(cube_data, angle_list, cyx, n)
             else:
                 cube_data_ = torch_cube_derotate_batch(cube_data, all_grids)
+                
+            print('residuals__')
+            print(cube_data_.shape)
+            print(cube_data_)
                 
             inter_images.append(np.median(cube_data_.detach().cpu().numpy(), axis = 0))
         
@@ -615,14 +653,14 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
                 objective = torch.mean(torch.std(output_data_, axis=0))*n + L2
             loss = objective
             
-            #print(loss)
+            print(loss)
             
             # Backward pass
             loss.backward()
                 
-            #print('gradient')
-            #print(matrix.grad.shape)
-            #print(matrix.grad)
+            print('gradient')
+            print(matrix.grad.shape)
+            print(matrix.grad)
                 
             return loss
     
@@ -795,7 +833,7 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
     annulus_mask = np.zeros_like(cube[-1][0])
     annulus_mask[yy,xx] = 1
     
-    if len(angle_list.shape) == 1:
+    if np.isscalar(angle_list[0]):
         angle_list = np.array([angle_list for c in range(nch)])
     
     nbr_pixels = len(yy)
