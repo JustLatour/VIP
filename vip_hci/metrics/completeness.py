@@ -388,9 +388,13 @@ def _stim_fc(
     through_thresh=0.1,
     mask=None,
     conv=False,
-    starphot=1
+    starphot=1,
+    transmission=None
 ):
     flevel = level * np.mean([starphot])
+    if transmission is not None:
+        flevel *= transmission
+        
     cubefc = cube_inject_companions(
         cube,
         psf,
@@ -1139,6 +1143,7 @@ def completeness_curve_stim(
     an_dist=None,
     ini_contrast=None,
     starphot=1,
+    transmission=None,
     pxscale=0.1,
     n_fc=20,
     completeness=0.95,
@@ -1290,6 +1295,7 @@ def completeness_curve_stim(
             pxscale,
             starphot,
             algo,
+            transmission=transmission,
             sigma=3,
             nbranch=1,
             theta=0,
@@ -1543,6 +1549,12 @@ def completeness_curve_stim(
     nbr_to_detect = int(round(completeness * n_fc))
     max_missed = int(n_fc - nbr_to_detect)
     
+    
+    if transmission is None:
+        transmission_factors = np.ones(len(an_dist))
+    else:
+        transmission_factors = np.interp(an_dist, transmission[0], transmission[1], right = 1, left = 0)
+    
 
     for k in range(len(an_dist)):
         a = an_dist[k]
@@ -1578,7 +1590,7 @@ def completeness_curve_stim(
             for b in range(0,n_fc):
                 this_result = _stim_fc(a,an_dist,b,level, n_fc, cube, psf, angle_list, 
                         fwhm, algo, algo_dict, stim_threshold, through_thresh, 
-                        mask, conv, starphot)
+                        mask, conv, starphot, transmission_factors[k])
                 
                 res[b] = this_result[0:2]
                 stim_maps[b] = this_result[2]
