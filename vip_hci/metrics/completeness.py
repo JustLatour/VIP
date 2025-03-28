@@ -1876,8 +1876,8 @@ def plot_fc_results(
         if nncomp == 1:
             residuals = residuals.reshape(1,residuals.shape[0], 
                                         residuals.shape[1],residuals.shape[2])
-            residuals_ = residuals_.reshape(1,residuals.shape[0], 
-                                        residuals.shape[1],residuals.shape[2])
+            residuals_ = residuals_.reshape(1,residuals_.shape[0], 
+                                        residuals_.shape[1],residuals_.shape[2])
             frames = frames.reshape(1, frames.shape[0], frames.shape[1])
         
         this_stim = np.zeros_like(frames)
