@@ -487,6 +487,53 @@ def get_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pixels, s
 
 
 
+def get_multi_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pixels, shape, yy, xx, psf_model, device,
+                          std_norm = False, std = 1):
+    
+    nch, n, y, x = shape
+    
+    total_im = np.zeros(nch+1, dtype = int)
+    
+    for c in range(nch):
+        total_im[c+1:] = total_im[c+1:] + n[c]
+    y = int(y[-1])
+    x = int(x[-1])
+    
+    if convolve:
+        this_matrix_cube = torch.zeros((nch,nbr_pixels, y, x), device = device)
+        this_matrix_cube[:,:,yy,xx] = matrix
+        
+        this_matrix_conv = []
+        this_matrix_t = []
+        this_matrix = torch.zeros((nch,nbr_pixels,nbr_pixels))
+        for c in range(nch):
+            this_matrix_conv.append(F.conv2d(this_matrix_cube[c].unsqueeze(1),
+                               psf_model, padding = 'same').view(nbr_pixels,y,x))
+            #.view does not put back data in the correct place. Need to transpose
+            this_matrix_t.append(this_matrix_conv[:,yy,xx])
+            this_matrix[c] = this_matrix_t[c].T
+    else:
+        this_matrix = matrix
+        
+        
+    output_data = []
+    cube_data = torch.zeros((total_im[-1], y, x), device = device)
+    cube_data_ = torch.zeros((total_im[-1], y, x), device = device)
+    for c in range(nch):
+        output_data.append(input_data[c] - torch.matmul(input_data[c], this_matrix[c]))
+        
+        if std_norm:
+            output_data[c] += std[c]
+    
+        cube_data[total_im[c]:total_im[c+1]] = torch.zeros((n[c], y, x), device = device)
+        cube_data[total_im[c]:total_im[c+1],yy,xx] = output_data[c]
+
+        cube_data_[total_im[c]:total_im[c+1]] = torch_cube_derotate_batch(cube_data[total_im[c]:total_im[c+1]], all_grids[c])
+    
+    return this_matrix, cube_data, cube_data_
+
+
+
 def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template = None,
             radius_mask = 0.75, L2_penalty = 0, iterations = 100, lr = 0.1,
             history_size = 10, max_iter = 20, limit = 0, verbose = False, 
@@ -702,7 +749,7 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
             history_size = 10, max_iter = 20, limit = 0, verbose = False, 
             L2_exempt = False, psf_mask = True, std_norm = True,
             nproc = None, imlib = "vip-fft", interpolation = "lanczos4", 
-            convolve = False, precision = 0.001, save_memory = False,
+            convolve = False, precision = 0.01,
             var = False, device = None):
     
     
@@ -791,9 +838,6 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
             psf_model.append(construct_round_rfrr_template(fwhm[c], psf_template_in=psf_template[c])[0])
         
     psf_model = torch.tensor(np.array(psf_model), dtype=torch.float32, device = device).unsqueeze(0).unsqueeze(0)
-    
-    
-    cyx = cube[-1].shape[-1]/2
 
     mask_annular = np.zeros((y,x))
     mask_annular[yy,xx] = 1
@@ -845,19 +889,18 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
     #psf_model = gaussian_kernel(nbr_pixels, sigma)
     #psf_model = psf_model.unsqueeze(0)
     
-    if not save_memory:
-        all_grids = []
-        for c in range(nch):
-            grid_size = torch.tensor(cube[c]).unsqueeze(1).size()
-            radians = - torch.deg2rad(angle_lists[c])
-            cos_theta = torch.cos(radians)
-            sin_theta = torch.sin(radians)
+    all_grids = []
+    for c in range(nch):
+        grid_size = torch.tensor(cube[c]).unsqueeze(1).size()
+        radians = - torch.deg2rad(angle_lists[c])
+        cos_theta = torch.cos(radians)
+        sin_theta = torch.sin(radians)
 
-            rotation_matrix = torch.stack(
-                [cos_theta, -sin_theta,torch.zeros(int(n[c]), device = device),
-                 sin_theta, cos_theta,torch.zeros(int(n[c]), device = device)], dim=-1).view(-1, 2, 3)
+        rotation_matrix = torch.stack(
+            [cos_theta, -sin_theta,torch.zeros(int(n[c]), device = device),
+             sin_theta, cos_theta,torch.zeros(int(n[c]), device = device)], dim=-1).view(-1, 2, 3)
 
-            all_grids.append(F.affine_grid(rotation_matrix, grid_size, align_corners = True).to(device))
+        all_grids.append(F.affine_grid(rotation_matrix, grid_size, align_corners = True).to(device))
 
     kernel = []
     if convolve:
@@ -883,46 +926,8 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
             
             this_matrix_m = matrix * mask_array
             
-            if convolve:
-                this_matrix_cube = torch.zeros((nch,nbr_pixels, y, x), device = device)
-                this_matrix_cube[:,:,yy,xx] = this_matrix_m
-                
-                this_matrix_conv = []
-                this_matrix_t = []
-                this_matrix = torch.zeros((nch,nbr_pixels,nbr_pixels))
-                for c in range(nch):
-                    this_matrix_conv.append(F.conv2d(this_matrix_cube[c].unsqueeze(1),
-                                       psf_model, padding = 'same').view(nbr_pixels,y,x))
-                    #.view does not put back data in the correct place. Need to transpose
-                    this_matrix_t.append(this_matrix_conv[:,yy,xx])
-                    this_matrix[c] = this_matrix_t[c].T
-            else:
-                this_matrix = this_matrix_m
-                
-                
-            #print('betas after conv')
-            #print(this_matrix)
-            #print('noise')
-            #noise = torch.matmul(input_data, this_matrix.T)
-            #print(noise.shape)
-            #print(noise)
-            
-            output_data = []
-            #cube_data = torch.zeros((total_im[-1], y, x))
-            cube_data_ = torch.zeros((total_im[-1], y, x), device = device)
-            for c in range(nch):
-                #input_data[c] = torch.tensor(input_data[c], dtype = torch.float32)
-                output_data.append(input_data[c] - torch.matmul(input_data[c], this_matrix[c]))
-            
-                #this_cube_data = torch.zeros((n[c],y,x))
-                #this_cube_data[:,yy,xx] = output_data[c]
-                cube_data = torch.zeros((n[c], y, x), device = device)
-                cube_data[:,yy,xx] = output_data[c]
-
-                if save_memory:
-                    cube_data_[total_im[c]:total_im[c+1]] = torch_cube_derotate(cube_data, angle_lists[c], cyx, n)
-                else:
-                    cube_data_[total_im[c]:total_im[c+1]] = torch_cube_derotate_batch(cube_data, all_grids[c])
+            this_matrix, cube_data, cube_data_ = get_multi_residual_sequence(input_data, 
+                    this_matrix_m, all_grids, convolve, nbr_pixels, (nch, n, y, x), yy, xx, psf_model, device)
                 
             inter_images.append(np.median(cube_data_.detach().cpu().numpy(), axis = 0))
         
@@ -945,10 +950,6 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
             
             # Backward pass
             loss.backward()
-                
-            #print('gradient')
-            #print(matrix.grad.shape)
-            #print(matrix.grad)
                 
             return loss
     
@@ -973,44 +974,24 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
         nproc = None
         restore_cpu_cores(original)
         
-    cube_data = np.zeros((total_im[-1],y,x))
-    cube_data_ = np.zeros((total_im[-1],y,x))
-    for c in range(nch):
-        angle_lists[c] = angle_lists[c].detach().cpu().numpy()
-        input_data[c] = input_data[c].detach().cpu().numpy()
-        
-    std = std.detach().cpu().numpy()
-    mean = mean.detach().cpu().numpy()
-    
-    output_data = []
-    matrix = matrix.detach().cpu().numpy()
-    for c in range(nch):
-        if std_norm:
-            output_data.append((input_data[c] - np.matmul(input_data[c], matrix[c]))*std[c])
-        else:
-            output_data.append((input_data[c] - np.matmul(input_data[c], matrix[c])))
-    
-        cube_data[total_im[c]:total_im[c+1],yy,xx] = output_data[c]
+    _, cube_data, cube_data_ = get_multi_residual_sequence(input_data, 
+             matrix*mask_array, all_grids, convolve, nbr_pixels, (nch, n,y,x), yy, xx, psf_model, device,
+             std_norm, std)
 
-        cube_data_[total_im[c]:total_im[c+1]] = cube_derotate(
-                cube_data[total_im[c]:total_im[c+1]],
-                angle_lists[c],
-                nproc=nproc,
-                imlib=imlib,
-                interpolation=interpolation, mask_val = 0, interp_zeros = True)
-    
-    
+    cube_data = cube_data.squeeze(1).detach().cpu().numpy()
+    cube_data_ = cube_data_.squeeze(1).detach().cpu().numpy()
+     
     mask_annular = np.zeros((y,x))
     mask_annular[yy,xx] = 1
     cube_data_ *= mask_annular
 
     result = np.median(cube_data_, axis = 0)
     result *= mask_annular
-    
+     
     if verbose:
         end = time.time()
         print('Algorithm ran for {} seconds'.format(end-start))
-        
+         
     inter_images = np.array(inter_images)
     if cropped:
         pad = int((y0-y)/2)
