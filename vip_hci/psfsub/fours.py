@@ -523,10 +523,11 @@ def get_multi_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pix
         if std_norm:
             output_data[c] += std[c]
     
-        cube_data[total_im[c]:total_im[c+1]] = torch.zeros((n[c], y, x), device = device)
+        this_cube_data = torch.zeros((n[c],y,x), device = device)
+        this_cube_data[:,yy,xx] = output_data[c]
         cube_data[total_im[c]:total_im[c+1],yy,xx] = output_data[c]
 
-        cube_data_[total_im[c]:total_im[c+1]] = torch_cube_derotate_batch(cube_data[total_im[c]:total_im[c+1]], all_grids[c])
+        cube_data_[total_im[c]:total_im[c+1]] = torch_cube_derotate_batch(this_cube_data, all_grids[c]).squeeze(1)
     
     return this_matrix, cube_data, cube_data_
 
@@ -976,8 +977,8 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
              matrix*mask_array, all_grids, convolve, nbr_pixels, (nch, n,y,x), yy, xx, psf_model, device,
              std_norm, std)
 
-    cube_data = cube_data.squeeze(1).detach().cpu().numpy()
-    cube_data_ = cube_data_.squeeze(1).detach().cpu().numpy()
+    cube_data = cube_data.detach().cpu().numpy()
+    cube_data_ = cube_data_.detach().cpu().numpy()
      
     mask_annular = np.zeros((y,x))
     mask_annular[yy,xx] = 1
