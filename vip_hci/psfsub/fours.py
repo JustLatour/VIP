@@ -485,8 +485,6 @@ def get_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pixels, s
     
     return this_matrix, cube_data, cube_data_
 
-
-
 def get_multi_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pixels, shape, yy, xx, psf_model, device,
                           std_norm = False, std = 1):
     
@@ -503,12 +501,12 @@ def get_multi_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pix
         
         this_matrix_conv = []
         this_matrix_t = []
-        this_matrix = torch.zeros((nch,nbr_pixels,nbr_pixels))
+        this_matrix = torch.zeros((nch,nbr_pixels,nbr_pixels), dtype = torch.float32, device = device)
         for c in range(nch):
             this_matrix_conv.append(F.conv2d(this_matrix_cube[c].unsqueeze(1),
-                               psf_model, padding = 'same').view(nbr_pixels,y,x))
+                               psf_model[c], padding = 'same').view(nbr_pixels,y,x))
             #.view does not put back data in the correct place. Need to transpose
-            this_matrix_t.append(this_matrix_conv[:,yy,xx])
+            this_matrix_t.append(this_matrix_conv[c][:,yy,xx])
             this_matrix[c] = this_matrix_t[c].T
     else:
         this_matrix = matrix
@@ -832,11 +830,13 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
     psf_size = int(np.max(fwhm)*3)
     for c in range(nch):
         if psf_template is None:
-            psf_model.append(construct_round_rfrr_template(fwhm[c], psf_template_in=np.ones((psf_size,psf_size)))[0])
+            psf_model.append(torch.tensor(construct_round_rfrr_template(fwhm[c], 
+                psf_template_in=np.ones((psf_size,psf_size)))[0], dtype = torch.float32, 
+                device = device).unsqueeze(0).unsqueeze(0))
         else:
-            psf_model.append(construct_round_rfrr_template(fwhm[c], psf_template_in=psf_template[c])[0])
-        
-    psf_model = torch.tensor(np.array(psf_model), dtype=torch.float32, device = device).unsqueeze(0).unsqueeze(0)
+            psf_model.append(torch.tensor(construct_round_rfrr_template(fwhm[c], 
+                psf_template_in=psf_template[c])[0], dtype = torch.float32, 
+                device = device).unsqueeze(0).unsqueeze(0))
 
     mask_annular = np.zeros((y,x))
     mask_annular[yy,xx] = 1
@@ -900,17 +900,6 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
              sin_theta, cos_theta,torch.zeros(int(n[c]), device = device)], dim=-1).view(-1, 2, 3)
 
         all_grids.append(F.affine_grid(rotation_matrix, grid_size, align_corners = True).to(device))
-
-    kernel = []
-    if convolve:
-        # Calculate Gaussian parameters
-        for c in range(nch):
-            sigma = fwhm[c] / (2 * math.sqrt(2 * math.log(2)))
-            kernel_size = 2 * int(3 * sigma) + 1  # Ensure odd kernel size
-
-            # Generate Gaussian kernel
-            kernel.append(gaussian_kernel(kernel_size, sigma, matrix.device))
-            kernel[c] = kernel.unsqueeze(0).unsqueeze(0)  # Shape: [1, 1, H, W]
         
     #if convolve:
     #    mask_norm = F.conv2d(torch.tensor(annulus_mask).unsqueeze(0).unsqueeze(0), psf_model).view(y,x)
