@@ -496,8 +496,6 @@ def get_multi_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pix
     
     for c in range(nch):
         total_im[c+1:] = total_im[c+1:] + n[c]
-    y = int(y[-1])
-    x = int(x[-1])
     
     if convolve:
         this_matrix_cube = torch.zeros((nch,nbr_pixels, y, x), device = device)
