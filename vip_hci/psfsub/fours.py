@@ -179,8 +179,7 @@ def construct_rfrr_mask2(cut_off_radius,
     else:
         padded_template = template_mask
         
-    center = side // 2
-    pad = center
+    pad = padded_template.shape[0] // 2
     
     if side % 2 == 1:
         addon = 1
@@ -869,7 +868,7 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
     opp_mask = []
     for c in range(nch):
         if psf_mask:
-            this_mask_array, this_opp_mask = construct_rfrr_mask2(radius_mask * fwhm[c],psf_template,annulus_mask,nbr_pixels)
+            this_mask_array, this_opp_mask = construct_rfrr_mask2(radius_mask * fwhm[c],psf_template[c],annulus_mask,nbr_pixels)
         else:
             this_mask_array, this_opp_mask = construct_rfrr_mask(annulus_mask, yy, xx, radius_mask * fwhm[c], nbr_pixels)
 
