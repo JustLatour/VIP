@@ -721,7 +721,8 @@ def get_mu_and_sigma(
 
     # check if r_guess is less than fwhm
     if r_guess < fwhm:
-        raise ValueError("r_guess should be greater than fwhm.")
+        print('Warning: r_guess is smaller than fwhm')
+        #raise ValueError("r_guess should be greater than fwhm.")
 
     ncomp = algo_options.get("ncomp", ncomp)
     svd_mode = algo_options.get("svd_mode", svd_mode)

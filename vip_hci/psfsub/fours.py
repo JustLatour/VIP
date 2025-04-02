@@ -522,6 +522,7 @@ def get_multi_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pix
     
         this_cube_data = torch.zeros((n[c],y,x), device = device)
         this_cube_data[:,yy,xx] = output_data[c]
+
         cube_data[total_im[c]:total_im[c+1],yy,xx] = output_data[c]
 
         cube_data_[total_im[c]:total_im[c+1]] = torch_cube_derotate_batch(this_cube_data, all_grids[c]).squeeze(1)

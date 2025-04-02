@@ -42,7 +42,7 @@ from skimage.draw import disk
 
 from .contrcurve import contrast_curve
 from .snr_source import snrmap, _snr_approx, snr
-from .stim import normalized_stim_map, stim_map, inverse_stim_map
+from .stim import normalized_stim_map, stim_map, inverse_stim_map, make_stim2D_threshold
 from ..config.utils_conf import pool_map, iterable, vip_figsize, vip_figdpi
 from ..fm import cube_inject_companions, normalize_psf
 from ..fm.utils_negfc import find_nearest
@@ -62,6 +62,7 @@ from ..config.paramenum import (
 
 
 from scipy import signal
+
 
 def get_adi_res(cube, collapse_ifs = 'mean'):
     cube = np.array(cube)
@@ -135,75 +136,6 @@ def masked_gaussian_convolution(image, mask, fwhm):
     result *= mask
     
     return result
-
-def create_distance_interpolated_array(values, shape):
-    """
-    Create a 2D array where each pixel's value is determined by its distance to the center,
-    using linear interpolation from the given values vector.
-
-    Parameters:
-        values (list or np.ndarray): The 1D vector of values to interpolate from.
-    height (int): The height of the output 2D array.
-    width (int): The width of the output 2D array.
-
-    Returns:
-        np.ndarray: The resulting 2D array with interpolated values based on distance from the center.
-    """
-    values = np.asarray(values)
-    if len(values) == 0:
-        raise ValueError("Values vector must not be empty.")
-
-    height = shape[0]
-    width = shape[1]
-
-    # Calculate center coordinates
-    y_center = height / 2.0
-    x_center = width / 2.0
-
-    # Generate grid of indices
-    y_indices, x_indices = np.indices((height, width))
-
-    # Compute Euclidean distance from the center for each pixel
-    distances = np.sqrt((x_indices - x_center)**2 + (y_indices - y_center)**2)
-
-    # Compute floor and ceiling indices for each distance
-    floor_d = np.floor(distances).astype(int)
-    ceil_d = floor_d + 1
-    alpha = distances - floor_d  # Fractional part for interpolation
-
-    # Clamp indices to valid range [0, len(values)-1]
-    max_index = len(values) - 1
-    floor_d = np.clip(floor_d, 0, max_index)
-    ceil_d = np.clip(ceil_d, 0, max_index)
-
-    # Perform linear interpolation
-    interpolated = (1 - alpha) * values[floor_d] + alpha * values[ceil_d]
-
-    return interpolated
-
-
-def return_stim_max(stim, mask = None, fwhm = 4, width = 1):
-    y,x = stim.shape
-
-    values = np.zeros(int(x/2))
-    
-    if not np.isscalar(fwhm):
-        fwhm = np.mean(fwhm)
-
-    factor = 2 / width
-    for r in range(int(x/2)):
-        this_mask = np.ones((y,x))
-        this_min = np.max((0,r-fwhm/factor))
-        this_max = np.min((r+fwhm/factor, x/2))
-        this_mask = mask_circle(this_mask, this_min)
-        this_mask = mask_circle(this_mask, this_max, mode = 'out')
-        if mask is not None:
-            this_mask *= mask
-
-        values[r] = np.nanmax(stim*this_mask)
-
-    values[np.where(values <= 0)] = np.nanmax(values)
-    return values
 
 
 def _estimate_snr_fc(
@@ -1442,10 +1374,7 @@ def completeness_curve_stim(
                 
                 
             if progressive_thr:
-                values = return_stim_max(this_inverse, mask, fwhm, width = width)
-                this_max = create_distance_interpolated_array(values, this_inverse.shape)
-                this_max *= mask
-                this_max[np.where(this_max == 0)] = np.nanmax(this_max)
+                this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
             else:
                 this_max = np.nanmax(this_inverse)
                 
@@ -1492,10 +1421,7 @@ def completeness_curve_stim(
             pxl_mask = np.where(this_inverse > 0)
             
         if progressive_thr:
-            values = return_stim_max(this_inverse, mask, fwhm, width = width)
-            this_max = create_distance_interpolated_array(values, this_inverse.shape)
-            this_max *= mask
-            this_max[np.where(this_max == 0)] = np.nanmax(this_max)
+            this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
         else:
             this_max = np.nanmax(this_inverse)
             
@@ -1900,10 +1826,7 @@ def plot_fc_results(
                 
                 
             if progressive_thr:
-                values = return_stim_max(this_inverse, mask, fwhm, width = width)
-                this_max = create_distance_interpolated_array(values, this_inverse.shape)
-                this_max *= mask
-                this_max[np.where(this_max == 0)] = np.nanmax(this_max)
+                this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
             else:
                 this_max = np.nanmax(this_inverse)
                 
@@ -1948,10 +1871,7 @@ def plot_fc_results(
             pxl_mask = np.where(this_inverse > 0)
             
         if progressive_thr:
-            values = return_stim_max(this_inverse, mask, fwhm, width = width)
-            this_max = create_distance_interpolated_array(values, this_inverse.shape)
-            this_max *= mask
-            this_max[np.where(this_max == 0)] = np.nanmax(this_max)
+            this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
         else:
             this_max = np.nanmax(this_inverse)
             

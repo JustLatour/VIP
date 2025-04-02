@@ -31,7 +31,7 @@ from ..config.utils_param import separate_kwargs_dict
 from ..config import Progressbar
 from ..psfsub import pca, PCA_Params
 from ..preproc import cube_derotate, cube_collapse, cube_detect_badfr_correlation
-from ..metrics import stim_map, inverse_stim_map
+from ..metrics import stim_map, inverse_stim_map, make_stim2D_threshold
 from ..var import prepare_matrix, mask_circle, frame_filter_lowpass
 
 
@@ -54,6 +54,7 @@ class IPCA_Params(PCA_Params):
     nit: int = 1
     thr: Union[float, str] = 0.
     thr_mode: str = 'STIM'
+    width: float = 1
     r_out: float = None
     r_max: float = None
     smooth_ker: Union[float, List] = None
@@ -140,7 +141,7 @@ def ipca(*all_args: List, **all_kwargs: dict):
     thr: float or 'auto', opt
         Minimum threshold used to identify significant signals in the PCA image
         obtained at each iteration.
-    thr_mode: str {'STIM', 'abs'}, opt
+    thr_mode: str {'STIM', 'STIM2D', 'abs'}, opt
         How the threshold is expressed: whether based on the STIM map ('STIM')
         or expressed as absolute pixel intensity threshold ('abs'). The optimal
         choice may depend on whether you are speckle noise or sensitivity
@@ -148,7 +149,10 @@ def ipca(*all_args: List, **all_kwargs: dict):
         threshold corresponds to the minimum intensity in the STIM map computed
         from PCA residuals (Pairet et al. 2019), as expressed in units of
         maximum intensity obtained in the inverse STIM map (i.e. obtained from
-        using opposite derotation angles).
+        using opposite derotation angles). STIM2D allows for the computation 
+        of a STIM threshold that varies with the distance to the center of the
+        frame
+    width:Width of the annuli considered for thr_mode=STIM2D
     r_out: float or None, opt
         Outermost radius in pixels of circumstellar signals (estimated). This
         will be used if thr is set to 'auto'. The max STIM value beyond that
@@ -293,13 +297,18 @@ def ipca(*all_args: List, **all_kwargs: dict):
     """
 
     def _find_significant_signals(residuals_cube, residuals_cube_, angle_list,
-                                  thr, mask=0, r_out=None, r_max=None):
+                                  thr, mask=0, r_out=None, r_max=None, thr_pro = False,
+                                  fwhm=4, width=1):
         # Identifies significant signals with STIM map (outside mask)
         stim = stim_map(residuals_cube_)
         inv_stim = inverse_stim_map(residuals_cube, angle_list)
         if mask:
             inv_stim = mask_circle(inv_stim, mask)
-        max_inv = np.amax(inv_stim)
+            
+        if thr_pro:
+            max_inv = make_stim2D_threshold(inv_stim, fwhm=fwhm, width=width)
+        else:
+            max_inv = np.amax(inv_stim)
         if max_inv == 0:
             max_inv = 1  # np.amin(stim[np.where(stim>0)])
         if thr == 'auto':
@@ -477,13 +486,19 @@ def ipca(*all_args: List, **all_kwargs: dict):
     sig_images = np.zeros_like(it_cube)
     it_cube[0] = frame.copy()
     it_cube_nd[0] = frame.copy()
-    if algo_params.thr_mode == 'STIM':
+    thr_pro = False
+    if algo_params.thr_mode == 'STIM2D':
+        thr_pro = True
+    if 'STIM' in algo_params.thr_mode:
         sig_mask, nstim = _find_significant_signals(residuals_cube,
                                                     residuals_cube_,
                                                     algo_params.angle_list,
                                                     algo_params.thr,
                                                     mask=mask_center_px,
-                                                    r_out=algo_params.r_out)
+                                                    r_out=algo_params.r_out,
+                                                    thr_pro=thr_pro,
+                                                    fwhm=algo_params.fwhm,
+                                                    width=algo_params.width)
     else:
         sig_mask = np.ones_like(frame)
         sig_mask[np.where(frame < algo_params.thr)] = 0
@@ -511,7 +526,7 @@ def ipca(*all_args: List, **all_kwargs: dict):
                                      imlib=algo_params.imlib,
                                      nproc=algo_params.nproc)
 
-            if algo_params.thr_mode == 'STIM':
+            if 'STIM' in algo_params.thr_mode:
                 # create and rotate binary mask
                 mask_sig = np.zeros_like(sig_image)
                 mask_sig[np.where(sig_image > 0)] = 1
@@ -573,13 +588,16 @@ def ipca(*all_args: List, **all_kwargs: dict):
             residuals_cube_nd = res_nd[-2]
             frame_nd = res_nd[0]
 
-            if algo_params.thr_mode == 'STIM':
+            if 'STIM' in algo_params.thr_mode:
                 sig_mask, nstim = _find_significant_signals(residuals_cube_nd,
                                                             residuals_cube_,
                                                             algo_params.angle_list,
                                                             algo_params.thr,
                                                             mask=mask_center_px,
-                                                            r_out=algo_params.r_out)
+                                                            r_out=algo_params.r_out,
+                                                            thr_pro=thr_pro,
+                                                            fwhm=algo_params.fwhm,
+                                                            width=algo_params.width)
             else:
                 sig_mask = np.ones_like(frame)
                 sig_mask[np.where(frame < algo_params.thr)] = 0

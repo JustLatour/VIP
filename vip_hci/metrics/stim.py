@@ -14,7 +14,8 @@ Implementation of the STIM map from [PAI19]
 __author__ = 'Benoit Pairet'
 __all__ = ['stim_map',
            'inverse_stim_map',
-           'normalized_stim_map']
+           'normalized_stim_map',
+           'make_stim2D_threshold']
 
 import numpy as np
 from ..preproc import cube_derotate
@@ -117,3 +118,114 @@ def normalized_stim_map(cube, angle_list, mask=None, **rot_options):
     det_map = stim_map(cube_der)
 
     return det_map/max_inv
+
+
+def create_distance_interpolated_array(values, shape):
+    """
+    Create a 2D array where each pixel's value is determined by its distance to the center,
+    using linear interpolation from the given values vector.
+
+    Parameters:
+    values (list or np.ndarray): The 1D vector of values to interpolate from.
+    shape: (height, width) of output 2D array
+
+    Returns:
+        np.ndarray: The resulting 2D array with interpolated values based on distance from the center.
+    """
+    values = np.asarray(values)
+    if len(values) == 0:
+        raise ValueError("Values vector must not be empty.")
+
+    height = shape[0]
+    width = shape[1]
+
+    # Calculate center coordinates
+    y_center = height // 2
+    x_center = width // 2
+
+    # Generate grid of indices
+    y_indices, x_indices = np.indices((height, width))
+
+    # Compute =distance from the center for each pixel
+    distances = np.sqrt((x_indices - x_center)**2 + (y_indices - y_center)**2)
+
+    # Compute floor and ceiling indices for each distance
+    floor_d = np.floor(distances).astype(int)
+    ceil_d = floor_d + 1
+    alpha = distances - floor_d  # Fractional part for interpolation
+
+    # Clamp indices to valid range [0, len(values)-1]
+    max_index = len(values) - 1
+    floor_d = np.clip(floor_d, 0, max_index)
+    ceil_d = np.clip(ceil_d, 0, max_index)
+
+    # Perform linear interpolation
+    interpolated = (1 - alpha) * values[floor_d] + alpha * values[ceil_d]
+    
+    #safeguard against potential zeros or negative values the might have creeped in somehow
+    max_value = np.nanmax(interpolated)
+    interpolated[np.where(interpolated <= 0)] = max_value
+
+    return interpolated
+
+
+def return_stim_max(stim, fwhm = 4, width = 1, mask = None):
+    """
+    Create a 1D array where each value corresponds to the maximum of the stim
+    array in an annulus of width given by width*fwhm in pixels and centered 
+    on increasing distances to the center of the stim array
+
+    Parameters:
+    stim : The 2D array of (inverse) stim values
+    fwhm: fwhm for the observation
+    width: width (in fwhm) of each annulus
+    mask: binary mask that may exclude some areas of the image from being taken
+        into account for the maxima computation
+
+    Returns:
+        np.ndarray: 1D vector containing each maximum starting at distance
+            equal to one
+    """
+    y,x = stim.shape
+
+    values = np.zeros(int(x/2))
+    
+    #To be compatible with with arrays of fwhm (for 4D datasets for example)
+    if not np.isscalar(fwhm):
+        fwhm = np.mean(fwhm)
+
+    factor = 2 / width
+    for r in range(int(x/2)):
+        this_mask = np.ones((y,x))
+        this_min = np.max((0,r-fwhm/factor))
+        this_max = np.min((r+fwhm/factor, x/2))
+        this_mask = mask_circle(this_mask, this_min)
+        this_mask = mask_circle(this_mask, this_max, mode = 'out')
+        if mask is not None:
+            this_mask *= mask
+
+        values[r] = np.nanmax(stim*this_mask)
+
+    values[np.where(values <= 0)] = np.nanmax(values)
+    return values
+
+
+def make_stim2D_threshold(inv_stim, fwhm = 4, width = 1, mask = None):
+    """
+    Returns map of stim 2D threshold depending on the distance to the center of 
+    the frame
+    
+    Parameters:
+    inv_stim : The 2D array of (inverse) stim values
+    fwhm: fwhm for the observation
+    width: width (in fwhm) of each annulus
+    mask: binary mask that may exclude some areas of the image from being taken
+        into account for the maxima computation
+    """
+    
+    values = return_stim_max(inv_stim, mask = mask, fwhm = fwhm, width = width)
+    
+    result = create_distance_interpolated_array(values, inv_stim.shape)
+    result *= mask
+    
+    return result
