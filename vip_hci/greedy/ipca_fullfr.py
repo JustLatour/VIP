@@ -309,8 +309,8 @@ def ipca(*all_args: List, **all_kwargs: dict):
             max_inv = make_stim2D_threshold(inv_stim, fwhm=fwhm, width=width)
         else:
             max_inv = np.amax(inv_stim)
-        if max_inv == 0:
-            max_inv = 1  # np.amin(stim[np.where(stim>0)])
+            if max_inv == 0:
+                max_inv = 1  # np.amin(stim[np.where(stim>0)])
         if thr == 'auto':
             if r_out is None:
                 r_out = residuals_cube.shape[-1]//4

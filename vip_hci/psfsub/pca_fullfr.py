@@ -111,6 +111,7 @@ class PCA_Params:
     source_xy: Tuple[int] = None
     delta_rot: int = None
     fwhm: float = 4
+    roll: bool = False
     # strategy: str = 'ADI' # TBD: add a strategy keyword: 'ADI', 'RDI', 'ARDI',
     # 'ASDI', 'SDI', 'S+ADI', 'ARSDI', 'RSDI' => replace 'adimsdi'
     adimsdi: Enum = Adimsdi.SINGLE
@@ -264,6 +265,9 @@ def pca(*all_args: List, **all_kwargs: dict):
     fwhm : float, list or 1d numpy array, optional
         Known size of the FWHM in pixels to be used. Default value is 4.
         Can be a list or 1d numpy array for a 4d input cube with no scale_list.
+    roll: boolean to decide whether the cube should be treated as two rolls
+        from a roll observing strategy ( JWST ). Rolls are aautomatically 
+        detected by finding two values in the pa vector
     adimsdi : Enum, see `vip_hci.config.paramenum.Adimsdi`
         Changes the way the 4d cubes (ADI+mSDI) are processed. Basically it
         determines whether a single or double pass PCA is going to be computed.
@@ -882,6 +886,7 @@ def _adi_rdi_pca(
     source_xy,
     delta_rot,
     fwhm,
+    roll,
     scaling,
     mask_center_px,
     svd_mode,
@@ -960,7 +965,7 @@ def _adi_rdi_pca(
                     "instead.".format(n, ncomp)
                 )
             if mask_rdi is None:
-                if source_xy is None:
+                if source_xy is None and roll == False:
                     residuals_result = _project_subtract(
                         cube,
                         cube_ref,
@@ -983,6 +988,35 @@ def _adi_rdi_pca(
                         recon = reshape_matrix(reconstructed, y, x)
                     else:
                         residuals_cube = residuals_result
+                
+                elif roll is True:
+                    pa_values = np.array(list(set(angle_list)))
+                    nbr_rolls = len(pa_values)
+                    indices = []
+                    for r in range(nbr_rolls):
+                        indices.append(np.where(angle_list == pa_values[r])[0])
+                    
+                    residuals_cube = np.zeros_like(cube)
+                    if full_output:
+                        recon = np.zeros_like(cube)
+                        V = []
+                    for r in range(nbr_rolls):
+                        results = _project_subtract(
+                            cube, cube_ref, ncomp, scaling, mask_center_px,
+                            svd_mode, verbose, full_output,
+                            cube_sig=cube_sig,
+                            left_eigv=left_eigv,
+                            min_frames_pca=min_frames_pca,
+                            indices_roll=indices[r]
+                        )
+                        
+                        if full_output:
+                            V.append(reshape_matrix(results[2], y, x))
+                            recon[indices[r]] = reshape_matrix(results[1], y, x)
+                            residuals_cube[indices[r]] = reshape_matrix(results[0], y, x)
+                        else:
+                            residuals_cube[indices[r]] = reshape_matrix(results[0], y, x)
+                            
 
                 # A rotation threshold is applied
                 else:
@@ -1034,12 +1068,32 @@ def _adi_rdi_pca(
                         descriptive_stats(nfrslib, verbose=verbose,
                                           label="Size LIB: ")
             else:
-                residuals_result = cube_subtract_sky_pca(
-                    cube, cube_ref, mask_rdi, ncomp=ncomp, full_output=True
-                )
-                residuals_cube = residuals_result[0]
-                pcs = residuals_result[2]
-                recon = residuals_result[-1]
+                if roll is True:
+                    pa_values = np.array(list(set(angle_list)))
+                    nbr_rolls = len(pa_values)
+                    indices = []
+                    residuals_cube = np.zeros_like(cube)
+                    recon = np.zeros_like(cube)
+                    pcs = []
+                    for r in range(nbr_rolls):
+                        indices.append(np.where(angle_list == pa_values[r])[0])
+                        cube_ref = cube[~indices[-1]].copy()
+                        
+                        residuals_result = cube_subtract_sky_pca(
+                            cube[indices[r]], cube_ref, mask_rdi, ncomp=ncomp, full_output=True
+                        )
+                        
+                        residuals_cube[indices[r]] = residuals_result[0]
+                        pcs.append(residuals_result[2])
+                        recon[indices[r]] = residuals_result[-1]
+                        
+                else:
+                    residuals_result = cube_subtract_sky_pca(
+                        cube, cube_ref, mask_rdi, ncomp=ncomp, full_output=True
+                    )
+                    residuals_cube = residuals_result[0]
+                    pcs = residuals_result[2]
+                    recon = residuals_result[-1]
 
             residuals_cube_ = cube_derotate(
                 residuals_cube,
@@ -1075,34 +1129,88 @@ def _adi_rdi_pca(
 
         # When ncomp is a tuple, pca_grid is called
         else:
-            gridre = pca_grid(
-                cube,
-                angle_list,
-                fwhm,
-                range_pcs=ncomp,
-                source_xy=source_xy,
-                cube_ref=cube_ref,
-                mode="fullfr",
-                svd_mode=svd_mode,
-                scaling=scaling,
-                mask_center_px=mask_center_px,
-                fmerit="mean",
-                collapse=collapse,
-                verbose=verbose,
-                full_output=full_output,
-                debug=False,
-                plot=verbose,
-                start_time=start_time,
-                weights=weights,
-                nproc=nproc,
-                imlib=imlib,
-                interpolation=interpolation,
-                **rot_options,
-            )
-            return gridre
-        
-
-
+            if roll is False:
+                gridre = pca_grid(
+                    cube,
+                    angle_list,
+                    fwhm,
+                    range_pcs=ncomp,
+                    source_xy=source_xy,
+                    cube_ref=cube_ref,
+                    mode="fullfr",
+                    svd_mode=svd_mode,
+                    scaling=scaling,
+                    mask_center_px=mask_center_px,
+                    fmerit="mean",
+                    collapse=collapse,
+                    verbose=verbose,
+                    full_output=full_output,
+                    debug=False,
+                    plot=verbose,
+                    start_time=start_time,
+                    weights=weights,
+                    nproc=nproc,
+                    imlib=imlib,
+                    interpolation=interpolation,
+                    **rot_options,
+                    )
+                return gridre
+            
+            else:
+                pa_values = np.array(list(set(angle_list)))
+                nbr_rolls = len(pa_values)
+                indices = []
+                residuals_cube = np.zeros_like(cube)
+                pcs = []
+                
+                if isinstance(ncomp, list):
+                    pclist = ncomp
+                    pcmax = max(pclist)
+                else:
+                    if ncomp is None:
+                        pcmin = 1
+                        pcmax = n - 1
+                        step = 1
+                    elif len(ncomp) == 2:
+                        pcmin, pcmax = ncomp
+                        pcmax = min(pcmax, n)
+                        step = 1
+                    elif len(ncomp) == 3:
+                        pcmin, pcmax, step = ncomp
+                        pcmax = min(pcmax, n)
+                    else:
+                        raise TypeError('`range_pcs` must be None or a tuple, corresponding'
+                                        'to (PC_INI, PC_MAX) or (PC_INI, PC_MAX, STEP)')
+                    pclist = list(range(pcmin, pcmax+1, step))
+                    
+                nncomp = len(pclist)
+                residuals = np.zeros((nncomp,n,y,x))
+                
+                matrix = prepare_matrix(cube, scaling, mask_center_px, verbose=False)
+                
+                for r in range(nbr_rolls):
+                    indices.append(np.where(angle_list == pa_values[r])[0])
+                    cube_ref = cube[~indices[-1]].copy()
+                    ref_lib = prepare_matrix(cube_ref, scaling, mask_center_px,
+                                                 verbose=False)
+                    V = svd_wrapper(ref_lib, svd_mode, pcmax, verbose)
+                    
+                    for i,pc in enumerate(pclist):
+                        transformed = np.dot(V[:pc], matrix[indices[r]].T)
+                        reconstructed = np.dot(transformed.T, V[:pc])
+                        these_residuals = matrix[indices[r]] - reconstructed
+                        residuals[i,indices[r],:,:] = reshape_matrix(these_residuals, y, x)
+                        
+                residuals_ = np.zeros((nncomp,n,y,x))
+                for i, pc in enumerate(pclist):
+                    residuals_[i] = cube_derotate(residuals[i], angle_list, nproc = nproc,
+                                                      **rot_options)
+                    
+                frames = np.median(residuals_, axis = 1)
+                
+                return frames, pclist
+            
+            
 def _arsdi_pca(
     cube,
     angle_list,
@@ -1285,7 +1393,7 @@ def _arsdi_pca(
             **rot_options)
     
     return res_pca
-        
+
 
 def _arsdi_pca_channel(
     cube,
@@ -1856,6 +1964,7 @@ def _project_subtract(
     cube_sig=None,
     left_eigv=False,
     min_frames_pca=10,
+    indices_roll=None
 ):
     """
     PCA projection and model PSF subtraction.
@@ -1932,6 +2041,7 @@ def _project_subtract(
                 nfr = cube_sig.shape[0]
                 matrix_sig = np.reshape(cube_sig, (nfr, -1))
             matrix_emp = matrix - matrix_sig
+            
 
         if cube_ref is not None:
             if left_eigv:
@@ -1941,6 +2051,13 @@ def _project_subtract(
             else:
                 matrix_ref = prepare_matrix(cube_ref, scaling, mask_center_px,
                                             mode="fullfr", verbose=verbose)
+                
+        if indices_roll is not None:
+            matrix_ref = matrix_emp[~indices_roll].copy()
+            cube_ref = 1 #just so that it is not None for upcoming if statements
+            matrix_emp = matrix_emp[indices_roll]
+            matrix = matrix[indices_roll]
+            
 
         # check whether indices are well defined (i.e. not empty)
         msg = "{} frames comply to delta_rot condition < less than "
