@@ -536,7 +536,7 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
             history_size = 10, max_iter = 20, limit = 0, verbose = False, 
             L2_exempt = False, psf_mask = True, std_norm = True,
             nproc = None, imlib = "vip-fft", interpolation = "lanczos4", 
-            convolve = False, precision = 0.01,
+            convolve = False, precision = 0.01, full_output = True,
             var = False, device = None):
     
     if device is None:
@@ -736,8 +736,12 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
         cube_data = np.pad(cube_data, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
         cube_data_ = np.pad(cube_data_, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
         inter_images = np.pad(inter_images, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
-    
-    return cube_data, cube_data_, result, loss.item(), matrix.detach().cpu().numpy(), inter_images
+        
+        
+    if full_output:
+        return cube_data, cube_data_, result, loss.item(), matrix.detach().cpu().numpy(), inter_images
+    else:
+        return result
 
 
 
