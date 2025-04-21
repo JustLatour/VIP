@@ -430,7 +430,7 @@ def ipca(*all_args: List, **all_kwargs: dict):
         if algo_params.mode == 'Pairet18':
             algo_params.nit = ncomp_tmp
             final_ncomp = list(range(algo_params.ncomp_start, ncomp_tmp+1, algo_params.ncomp_step))
-            algo_params.thr = 0
+            #algo_params.thr = 0
         elif algo_params.mode in ['Pairet21', 'Christiaens21']:
             final_ncomp = []
             for npc in range(algo_params.ncomp_start, ncomp_tmp+1, algo_params.ncomp_step):
@@ -438,7 +438,8 @@ def ipca(*all_args: List, **all_kwargs: dict):
                     final_ncomp.append(npc)
             algo_params.nit = len(final_ncomp)
             if algo_params.mode == 'Pairet21':
-                algo_params.thr = 0
+                pass
+                #algo_params.thr = 0
     else:
         final_ncomp = [ncomp_tmp]*algo_params.nit
 
