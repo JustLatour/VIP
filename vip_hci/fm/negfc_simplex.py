@@ -30,7 +30,7 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
                           algo_options={}, f_range=None, transmission=None,
                           mu_sigma=(0, 1), weights=None, ndet=None, plot=False,
                           verbose=True, save=False, debug=False,
-                          full_output=False):
+                          full_output=False, counter_limit = 4):
     """Determine a first guess for the flux of a companion at a given position\
     in the cube by doing a simple grid search evaluating the reduced chi2 using\
     the negative fake companion technique (i.e. the reduced chi2 is calculated\
@@ -209,7 +209,7 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
                                    mu_sigma, weights, False, ndet, debug))
             if chi2r[j] > chi2r[j-1]:
                 counter += 1
-            if counter == 4:
+            if counter == counter_limit:
                 break
             if verbose:
                 print('{}/{}   {:.3f}   {:.3f}'.format(j +
@@ -499,7 +499,7 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                delta_rot=1, f_range=None, transmission=None, mu_sigma=True,
                wedge=None, weights=None, force_rPA=False, ndet=None,
                algo_options={}, simplex=True, simplex_options=None, plot=False,
-               verbose=True, save=False):
+               verbose=True, save=False, counter_limit=4):
     """Determine a first guess for the position and the flux of a planet using\
     the negative fake companion technique, as explained in [WER17]_.
 
@@ -733,7 +733,7 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                                          transmission=transmission,
                                          mu_sigma=mu_sigma, weights=weights,
                                          ndet=ndet, plot=plot, verbose=verbose,
-                                         save=save)
+                                         save=save, counter_limit=counter_limit)
 
         r_pre = res_init[0]
         theta_pre = res_init[1]
