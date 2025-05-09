@@ -227,7 +227,7 @@ def make_stim2D_threshold(inv_stim, fwhm = 4, width = 1, mask = None):
     
     result = create_distance_interpolated_array(values, inv_stim.shape)
     
-    if mask is not None:
-        result *= mask
+    #if mask is not None:
+    #    result *= mask
     
     return result

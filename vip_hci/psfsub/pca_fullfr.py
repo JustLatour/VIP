@@ -1204,9 +1204,12 @@ def _adi_rdi_pca(
                 residuals_ = np.zeros((nncomp,n,y,x))
                 for i, pc in enumerate(pclist):
                     residuals_[i] = cube_derotate(residuals[i], angle_list, nproc = nproc,
+                                                      imlib = imlib, interpolation = interpolation,
                                                       **rot_options)
                     
                 frames = np.median(residuals_, axis = 1)
+                
+                frames = mask_circle(frames, mask_center_px)
                 
                 return frames, pclist
             

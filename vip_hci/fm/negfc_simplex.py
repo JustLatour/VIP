@@ -15,11 +15,14 @@ from ..psfsub import pca_annulus
 from ..var import frame_center
 from .negfc_fmerit import chisquare
 from .negfc_fmerit import get_mu_and_sigma
+from .utils_negfc import cube_planet_free
+from .fakecomp import cube_inject_companions
 
 
 __author__ = 'O. Wertz, C. A. Gomez Gonzalez, V. Christiaens'
 __all__ = ['firstguess',
-           'firstguess_from_coord']
+           'firstguess_from_coord',
+           'astro_photo_metry_uncertainty']
 
 
 def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
@@ -332,7 +335,7 @@ def firstguess_simplex(p, cube, angs, psfn, ncomp, fwhm, annulus_width,
                        algo=pca_annulus, delta_rot=1, algo_options={},
                        p_ini=None, transmission=None, mu_sigma=(0, 1),
                        weights=None, force_rPA=False, ndet=None, options=None,
-                       verbose=False, **kwargs):
+                       verbose=False, method = 'Nelder-Mead', **kwargs):
     """Determine the position of a companion using the negative fake companion\
     technique and a standard minimization algorithm (Default=Nelder-Mead).
 
@@ -485,7 +488,7 @@ def firstguess_simplex(p, cube, angs, psfn, ncomp, fwhm, annulus_width,
                                           interpolation, algo_options,
                                           transmission, mu_sigma, weights,
                                           force_rPA, ndet),
-                    method='Nelder-Mead', options=options, **kwargs)
+                    method=method, options=options, **kwargs)
 
     if verbose:
         print(solu)
@@ -499,7 +502,7 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                delta_rot=1, f_range=None, transmission=None, mu_sigma=True,
                wedge=None, weights=None, force_rPA=False, ndet=None,
                algo_options={}, simplex=True, simplex_options=None, plot=False,
-               verbose=True, save=False, counter_limit=4):
+               verbose=True, save=False, method = 'Nelder-Mead', counter_limit=4, maxiter = 100):
     """Determine a first guess for the position and the flux of a planet using\
     the negative fake companion technique, as explained in [WER17]_.
 
@@ -757,7 +760,7 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                 print(msg4.format(i_planet))
 
             if simplex_options is None:
-                simplex_options = {'xatol': 1e-6, 'fatol': 1e-6, 'maxiter': 800,
+                simplex_options = {'xatol': 1e-6, 'fatol': 1e-6, 'maxiter': maxiter,
                                    'maxfev': 2000}
 
             res = firstguess_simplex(res_init, cube, angs, psfn, ncomp, fwhm,
@@ -771,7 +774,7 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                                      transmission=transmission,
                                      mu_sigma=mu_sigma, weights=weights,
                                      force_rPA=force_rPA, ndet=ndet,
-                                     options=simplex_options, verbose=False)
+                                     options=simplex_options, method = method, verbose=False)
             if force_rPA:
                 r_0[i_planet], theta_0[i_planet] = (r_pre, theta_pre)
                 f_0[i_planet] = res.x[:]
@@ -828,3 +831,107 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
         timing(start_time)
 
     return r_0, theta_0, f_0
+
+
+def astro_photo_metry_uncertainty(cube, angle_list, planets_rad, flux, psfn,
+                n_fc = 20, ncomp=1, fwhm=4, subtract = False, init_theta = None,
+               annulus_width=4, aperture_radius=1, cube_ref=None,
+               svd_mode='lapack', scaling=None, fmerit='sum', imlib='opencv',
+               interpolation='lanczos4', collapse='median', algo=pca_annulus,
+               delta_rot=1, f_range=None, transmission=None, maxiter = 100,
+               wedge=None, weights=None, ndet=None,force_rPA=False,
+               algo_options={}, simplex=True, simplex_options=None, plot=False,
+               verbose=True, save=False, counter_limit=4, method = 'Nelder-Mead'):
+    
+    
+    size = cube.shape[-1]
+    center = size // 2
+    
+    rads = np.zeros(n_fc)
+    thetas = np.zeros(n_fc)
+    fluxes = np.zeros(n_fc)
+    
+    if simplex_options is None:
+        simplex_options = {'xatol': 1e-6, 'fatol': 1e-6, 'maxiter': maxiter,
+                           'maxfev': 2000}
+        
+    if subtract:
+        cube_emp = cube_planet_free((planets_rad, init_theta, flux), cube, angle_list, 
+                                    psfn, imlib=imlib, interpolation=interpolation)
+    else:
+        cube_emp = cube
+    
+    orig_theta = np.zeros(n_fc)
+    for b in range(n_fc):
+        theta=b / n_fc * 360
+        orig_theta[b] = theta
+        radian = np.deg2rad(theta)
+        
+        this_x = center + planets_rad * np.cos(radian)
+        this_y = center + planets_rad * np.sin(radian)
+        
+        cube_fc = cube_inject_companions(
+            cube_emp,
+            psfn,
+            angle_list,
+            flevel=flux,
+            plsc=0.1,
+            rad_dists=planets_rad,
+            theta=b / n_fc * 360,
+            n_branches=1,
+            verbose=False,
+        )
+        
+        res_init = firstguess_from_coord(np.array([this_x, this_y]),
+                                         np.array([center, center]), cube_fc, angle_list,
+                                         psfn, fwhm, annulus_width,
+                                         aperture_radius, ncomp,
+                                         f_range=f_range, cube_ref=cube_ref,
+                                         svd_mode=svd_mode, scaling=scaling,
+                                         fmerit=fmerit, imlib=imlib,
+                                         collapse=collapse, algo=algo,
+                                         delta_rot=delta_rot,
+                                         interpolation=interpolation,
+                                         algo_options=algo_options,
+                                         transmission=transmission,
+                                         mu_sigma=None, weights=weights,
+                                         ndet=ndet, plot=plot, verbose=verbose,
+                                         save=save, counter_limit=counter_limit)
+    
+        #r_pre = res_init[0]
+        #theta_pre = res_init[1]
+        f_pre = res_init[2:][0]
+        
+        init = tuple([planets_rad, theta]+[f_pre])
+        
+        res = firstguess_simplex(init, cube_fc, angle_list, psfn, ncomp, fwhm,
+                                 annulus_width, aperture_radius,
+                                 cube_ref=cube_ref, svd_mode=svd_mode,
+                                 scaling=scaling, fmerit=fmerit,
+                                 imlib=imlib, interpolation=interpolation,
+                                 collapse=collapse, algo=algo,
+                                 delta_rot=delta_rot,
+                                 algo_options=algo_options,
+                                 transmission=transmission,
+                                 mu_sigma=None, weights=weights,
+                                 force_rPA=force_rPA, ndet=ndet,
+                                 options=simplex_options, method = method, verbose=False)
+        if force_rPA:
+            rads[b], thetas[b] = (init[0], init[1])
+            fluxes[b] = res.x[:]
+        else:
+            rads[b] = res.x[0]
+            thetas[b] = res.x[1]
+            if cube.ndim == 3:
+                fluxes[b] = res.x[2]
+            else:
+                fluxes[b] = res.x[2:]
+
+    rms_r = np.sqrt(np.sum((rads-planets_rad)**2) / n_fc)
+    rms_t = np.sqrt(np.sum((thetas-orig_theta)**2) / n_fc)
+    rms_f = np.sqrt(np.sum((fluxes-flux)**2) / n_fc)
+    mean_dr = np.mean(rads-planets_rad)
+    mean_dt = np.mean(thetas-orig_theta)
+    mean_df = np.mean(fluxes-flux)
+    
+    return (rms_r, rms_t, rms_f, mean_dr, mean_dt, mean_df)
