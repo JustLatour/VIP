@@ -13,7 +13,8 @@ from ..fm import cube_inject_companions
 
 
 def cube_planet_free(planet_parameter, cube, angs, psfn, imlib='vip-fft',
-                     interpolation='lanczos4', transmission=None):
+                     interpolation='lanczos4', transmission=None,
+                     radial_gradient=False):
     """
     Return a cube in which we have injected negative fake companion at the
     position/flux given by planet_parameter.
@@ -81,7 +82,8 @@ def cube_planet_free(planet_parameter, cube, angs, psfn, imlib='vip-fft',
                                                 imlib=imlib,
                                                 interpolation=interpolation,
                                                 verbose=False,
-                                                transmission=transmission)
+                                                transmission=transmission,
+                                                radial_gradient=radial_gradient)
         else:
             cpf = cube_inject_companions(cube_temp, psfn, angs, n_branches=1,
                                          flevel=-planet_parameter[i, 2],
@@ -89,7 +91,8 @@ def cube_planet_free(planet_parameter, cube, angs, psfn, imlib='vip-fft',
                                          theta=planet_parameter[i, 1],
                                          imlib=imlib, verbose=False,
                                          interpolation=interpolation,
-                                         transmission=transmission)
+                                         transmission=transmission,
+                                         radial_gradient=radial_gradient)
     return cpf
 
 

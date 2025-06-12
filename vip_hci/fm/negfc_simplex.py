@@ -31,6 +31,7 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
                           imlib='skimage', interpolation='biquintic',
                           collapse='median', algo=pca_annulus, delta_rot=1,
                           algo_options={}, f_range=None, transmission=None,
+                          radial_gradient=False,
                           mu_sigma=(0, 1), weights=None, ndet=None, plot=False,
                           verbose=True, save=False, debug=False,
                           full_output=False, counter_limit = 4):
@@ -186,6 +187,7 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
                        interpolation='lanczos4', collapse='median',
                        algo=pca_annulus, delta_rot=1, algo_options={},
                        f_range=np.geomspace(1e-1, 1e4, 30), transmission=None,
+                       radial_gradient=False,
                        mu_sigma=None, weights=None, ndet=None, verbose=True,
                        debug=False):
 
@@ -208,8 +210,9 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
                                    annulus_width, aperture_radius, (r0, theta0),
                                    ncomp, cube_ref, svd_mode, scaling, fmerit,
                                    collapse, algo, delta_rot, imlib,
-                                   interpolation, algo_options, transmission,
-                                   mu_sigma, weights, False, ndet, debug))
+                                   interpolation, algo_options, transmission, 
+                                   radial_gradient,mu_sigma, weights, False, 
+                                   ndet, debug))
             if chi2r[j] > chi2r[j-1]:
                 counter += 1
             if counter == counter_limit:
@@ -238,7 +241,8 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
                                interpolation=interpolation, collapse=collapse,
                                algo=algo, delta_rot=delta_rot,
                                algo_options=algo_options, f_range=f_range,
-                               transmission=transmission, mu_sigma=mu_sigma,
+                               transmission=transmission, 
+                               radial_gradient = radial_gradient, mu_sigma=mu_sigma,
                                weights=weights, ndet=ndet, verbose=verbose,
                                debug=debug)
         chi2r = np.array(chi2r)
@@ -285,6 +289,7 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
                                        algo_options=algo_options,
                                        f_range=f_range,
                                        transmission=transmission,
+                                       radial_gradient = radial_gradient,
                                        mu_sigma=mu_sigma, weights=weights,
                                        ndet=ndet, verbose=False, debug=False)
             chi2r.append(chi2r_tmp)
@@ -333,7 +338,8 @@ def firstguess_simplex(p, cube, angs, psfn, ncomp, fwhm, annulus_width,
                        scaling=None, fmerit='sum', imlib='skimage',
                        interpolation='biquintic', collapse='median',
                        algo=pca_annulus, delta_rot=1, algo_options={},
-                       p_ini=None, transmission=None, mu_sigma=(0, 1),
+                       p_ini=None, transmission=None, 
+                       radial_gradient = False, mu_sigma=(0, 1),
                        weights=None, force_rPA=False, ndet=None, options=None,
                        verbose=False, method = 'Nelder-Mead', **kwargs):
     """Determine the position of a companion using the negative fake companion\
@@ -486,7 +492,8 @@ def firstguess_simplex(p, cube, angs, psfn, ncomp, fwhm, annulus_width,
                                           cube_ref, svd_mode, scaling, fmerit,
                                           collapse, algo, delta_rot, imlib,
                                           interpolation, algo_options,
-                                          transmission, mu_sigma, weights,
+                                          transmission, radial_gradient, 
+                                          mu_sigma, weights,
                                           force_rPA, ndet),
                     method=method, options=options, **kwargs)
 
@@ -499,7 +506,8 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                annulus_width=4, aperture_radius=1, cube_ref=None,
                svd_mode='lapack', scaling=None, fmerit='sum', imlib='skimage',
                interpolation='biquintic', collapse='median', algo=pca_annulus,
-               delta_rot=1, f_range=None, transmission=None, mu_sigma=True,
+               delta_rot=1, f_range=None, transmission=None, 
+               radial_gradient = False, mu_sigma=True,
                wedge=None, weights=None, force_rPA=False, ndet=None,
                algo_options={}, simplex=True, simplex_options=None, plot=False,
                verbose=True, save=False, method = 'Nelder-Mead', counter_limit=4, maxiter = 100):
@@ -734,6 +742,7 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                                          interpolation=interpolation,
                                          algo_options=algo_options,
                                          transmission=transmission,
+                                         radial_gradient=radial_gradient,
                                          mu_sigma=mu_sigma, weights=weights,
                                          ndet=ndet, plot=plot, verbose=verbose,
                                          save=save, counter_limit=counter_limit)
@@ -772,6 +781,7 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                                      delta_rot=delta_rot,
                                      algo_options=algo_options,
                                      transmission=transmission,
+                                     radial_gradient=radial_gradient,
                                      mu_sigma=mu_sigma, weights=weights,
                                      force_rPA=force_rPA, ndet=ndet,
                                      options=simplex_options, method = method, verbose=False)

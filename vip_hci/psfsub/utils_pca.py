@@ -251,6 +251,8 @@ def pca_grid(cube, angle_list, fwhm=None, range_pcs=None, source_xy=None,
         else:
             residuals_reshaped = residuals_res
 
+        if len(residuals_reshaped.shape) == 4:
+            residuals_reshaped = residuals_reshaped[:,0,:,:]
         residuals_res_der = cube_derotate(residuals_reshaped, angle_list,
                                           **rot_options)
         res_frame = cube_collapse(residuals_res_der, mode=collapse, w=weights)

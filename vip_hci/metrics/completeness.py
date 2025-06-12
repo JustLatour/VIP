@@ -29,7 +29,8 @@ Module with completeness curve and map generation function.
 """
 
 __author__ = "C.H. Dahlqvist, V. Christiaens, T. Bédrine"
-__all__ = ["completeness_curve", "completeness_map", "completeness_curve_stim", "plot_fc_results"]
+__all__ = ["completeness_curve", "completeness_map", "completeness_curve_stim", 
+           "plot_fc_results", "completeness_theta_map"]
 
 from math import gcd
 from inspect import getfullargspec
@@ -2375,6 +2376,499 @@ def completeness_curve_stim_pca(
         plt.show()
 
     return an_dist, completeness_curve
+
+
+def completeness_theta_map(
+    cube,
+    angle_list,
+    psf,
+    fwhm,
+    algo,
+    an_dist=None,
+    ini_contrast=None,
+    starphot=1,
+    transmission=None,
+    pxscale=0.1,
+    n_fc=20,
+    conv=False,
+    sigma=None,
+    snr_approximation=True,
+    max_iter=20,
+    precision=0.1,
+    through_thresh=0.1,
+    progressive_thr=True,
+    width = 1.5,
+    mask=None,
+    algo_dict={},
+    verbose=True,
+    plot=True,
+    dpi=vip_figdpi,
+    save_plot=None,
+    object_name=None,
+    fix_y_lim=(),
+    imlib='vip-fft',
+    nproc=None,
+    figsize=vip_figsize,
+    algo_class=None,
+):
+    """
+    Function allowing the computation of completeness-based contrast curves with
+    any of the psf-subtraction algorithms provided by VIP. The code relies on
+    the approach proposed in [DAH21b]_, itself inspired by the framework
+    developed in [JEN18]_. It relies on the computation of the contrast
+    associated to a completeness level achieved at a level defined as the first
+    false positive in the original SNR map (brightest speckle observed in the
+    empty map) instead of the computation o the local noise and throughput (see
+    the ``vip_hci.metrics.contrast_curve`` function). The computation of the
+    completeness level associated to a contrast is done via the sequential
+    injection of multiple fake companions. The algorithm uses multiple
+    interpolations to find the contrast associated to the selected completeness
+    level (0.95 by default). More information about the algorithm can be found
+    in [DAH21b]_.
+
+    Parameters
+    ----------
+    cube : 3d or 4d numpy ndarray
+        The input cube, 3d (ADI data) or 4d array (IFS data), without fake
+        companions.
+    angle_list : 1d numpy ndarray
+        Vector of derotation angles to align North up in your cube images.
+    psf : 2d or 3d numpy ndarray
+        Frame with the psf template for the fake companion(s).
+        PSF must be centered in array. Normalization is done internally.
+    fwhm: int or float or 1d array, optional
+        The the Full Width Half Maximum in pixels. It can handle a different
+        FWHM value for different wavelengths (IFS data).
+    algo : callable or function
+        The post-processing algorithm, e.g. ``vip_hci.pca.pca``.
+    an_dist: list or ndarray, optional
+        List of angular separations for which a contrast has to be estimated.
+        Default is None which corresponds to a range spanning 2 FWHM to half
+        the size of the provided cube - PSF size //2 with a step of 5 pixels
+    ini_contrast: list, 1d ndarray or None, optional
+        Initial contrast for the range of angular separations included in
+        `an_dist`. The number of initial contrasts should be equivalent to the
+        number of angular separations. Default is None which corresponds to the
+        5-sigma contrast_curve obtained with ``vip_hci.metrics.contrast_curve``.
+    starphot : int or float or 1d array, optional
+        If int or float it corresponds to the aperture photometry of the
+        non-coronagraphic PSF which we use to scale the contrast.
+        Default is 1, which corresponds to an output contrast expressed in ADU.
+    pxscale : float, optional
+        Plate scale or pixel scale of the instrument. Only used for plots.
+    n_fc: int, optional
+        Number of azimuths considered for the computation of the True
+        positive rate/completeness,(number of fake companions injected
+        sequentially). The number of azimuths is defined such that the
+        selected completeness is reachable (e.g. 95% of completeness
+        requires at least 20 fake companion injections). Default 20.
+    completeness: float, optional
+        The completeness level to be achieved when computing the contrasts,
+        i.e. the True positive rate reached at the threshold associated to
+        the first false positive (the first false positive is defined as
+        the brightest speckle present in the entire detection map).
+        Default 95.
+    snr_approximation : bool, optional
+        If True, an approximated S/N map is generated. If False the
+        approach of [MAW14]_ is used. Default is True, for speed.
+    max_iter: int, optional
+        Maximum number of iterations to consider in the search for the contrast
+        level achieving desired completeness before considering it unachievable.
+    nproc : int or None, optional
+        Number of processes for parallel computing.
+    algo_dict: dictionary, optional
+        Any other valid parameter of the post-processing algorithms can be
+        passed here, including e.g. imlib and interpolation.
+    verbose : bool, optional
+        Whether to print more info while running the algorithm. Default: True.
+    plot : bool, optional
+        Whether to plot the final contrast curve or not. True by default.
+    dpi : int optional
+        Dots per inch for the plots. 100 by default. 300 for printing quality.
+    save_plot: string or None, optional
+        If provided, the contrast curve will be saved to this path.
+    object_name: string or None, optional
+        Target name, used in the plot title.
+    fix_y_lim: tuple, optional
+        If provided, the y axis limits will be fixed, for easier comparison
+        between plots.
+    fig_size: tuple, optional
+        Figure size
+
+    Returns
+    -------
+    an_dist: 1d numpy ndarray
+        Radial distances where the contrasts are calculated
+    cont_curve: 1d numpy ndarray
+        Contrasts for the considered radial distances and selected completeness
+        level.
+    """
+
+    if cube.ndim != 3 and cube.ndim != 4:
+        raise TypeError("The input array is not a 3d or 4d cube")
+    if cube.ndim == 3 and (cube.shape[0] != angle_list.shape[0]):
+        raise TypeError("Input parallactic angles vector has wrong length")
+    if cube.ndim == 4 and (cube.shape[1] != angle_list.shape[0]):
+        raise TypeError("Input parallactic angles vector has wrong length")
+    if cube.ndim == 3 and psf.ndim != 2:
+        raise TypeError("Template PSF is not a frame (for ADI case)")
+    if cube.ndim == 4 and psf.ndim != 3:
+        raise TypeError("Template PSF is not a cube (for ADI+IFS case)")
+    if nproc is None:
+        nproc = cpu_count() // 2
+
+    if isinstance(fwhm, (np.ndarray, list)):
+        fwhm_med = np.median(fwhm)
+    else:
+        fwhm_med = fwhm
+
+    if an_dist is None:
+        raise TypeError("Please decfine the distances")
+
+    if ini_contrast is None:
+        print("Contrast curve not provided => will be computed first...")
+        ini_cc = contrast_curve(
+            cube,
+            angle_list,
+            psf,
+            fwhm_med,
+            pxscale,
+            starphot,
+            algo,
+            transmission=transmission,
+            sigma=3,
+            nbranch=1,
+            theta=0,
+            inner_rad=1,
+            wedge=(0, 360),
+            fc_snr=100,
+            plot=False,
+            algo_class=algo_class,
+            **algo_dict,
+        )
+        ini_rads = np.array(ini_cc["distance"])
+        ini_cc = np.array(ini_cc["sensitivity_student"])
+
+        if np.amax(an_dist) > np.amax(ini_rads):
+            msg = "Max requested annular distance larger than covered by "
+            msg += "contrast curve. Please decrease the maximum annular distance"
+            raise ValueError(msg)
+
+        # find closest contrast values to requested radii
+        ini_contrast = []
+        for aa, ad in enumerate(an_dist):
+            idx = find_nearest(ini_rads, ad)
+            ini_contrast.append(ini_cc[idx])
+
+
+    # TODO: Clean below?
+    # Consider 3 cases depending on whether algo is (i) defined externally,
+    # (ii) a VIP postproc algorithm; (iii) ineligible for contrast curves
+    argl = getfullargspec(algo).args
+    if "cube" in argl and "angle_list" in argl and "verbose" in argl:
+        # (i) external algorithm with appropriate parameters [OK]
+        pass
+    else:
+        algo_name = algo.__name__
+        idx = algo.__module__.index(
+            '.', algo.__module__.index('.') + 1)
+        mod = algo.__module__[:idx]
+        tmp = __import__(
+            mod, fromlist=[algo_name.upper()+'_Params'])
+        algo_params = getattr(tmp, algo_name.upper()+'_Params')
+        argl = [attr for attr in vars(algo_params)]
+        if "cube" in argl and "angle_list" in argl and "verbose" in argl:
+            # (ii) a VIP postproc algorithm [OK]
+            pass
+        else:
+            # (iii) ineligible routine for contrast curves [Raise error]
+            msg = "Ineligible algo for contrast curve function. algo should "
+            msg += "have parameters 'cube', 'angle_list' and 'verbose'"
+            raise TypeError(msg)
+
+    if "cube" in argl and "angle_list" in argl:
+        if algo.__name__ == 'pca':
+            output = algo(cube=cube,
+                          angle_list=angle_list,
+                          verbose=False,
+                          full_output = True,
+                          **algo_dict)
+            
+            if len(cube.shape) == 4:
+                if 'adimsdi' not in algo_dict.keys():
+                    algo_dict['adimsdi'] = Adimsdi.SINGLE
+                if 'cube_ref' not in algo_dict.keys():
+                    algo_dict['cube_ref'] = None
+                if 'scale_list' not in algo_dict.keys():
+                    algo_dict['scale_list'] = None
+                    
+                if algo_dict['scale_list'] is None:
+                    frames = output[0]
+                    residuals = output[3]
+                else:
+                    if (algo_dict['adimsdi'] == Adimsdi.DOUBLE or 
+                                       algo_dict['cube_ref'] is not None):
+                        frames = output[0]
+                        residuals = output[1]
+                    else:
+                        frames = output[0]
+                        residuals = output[2]
+                
+                
+                to_collapse = False
+                if algo_dict['cube_ref'] is not None:
+                    to_collapse = True
+                if algo_dict['scale_list'] is None:
+                    to_collapse = True
+                    
+                if to_collapse:
+                    residuals = get_adi_res(residuals)
+            else:
+                frames = output[0]
+                residuals = output[3]
+                
+        elif algo.__name__ == 'pca_annular':
+            output = algo(cube=cube,
+                          angle_list=angle_list,
+                          verbose=False,
+                          full_output = True,
+                          **algo_dict)
+            
+            residuals = output[0]
+            frames = output[2]
+        elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
+            output = algo(cube=cube, angle_list=-angle_list, 
+                             **algo_dict)
+            
+            frames = output[2]
+            residuals_ = output[1]
+        else:
+            raise ValueError("algorithm not supported")
+    else:
+        raise ValueError("'cube' and 'angle_list' must be arguments of algo")
+
+    if 'pca' in algo.__name__:
+        ncomp = algo_dict['ncomp']
+        if np.isscalar(ncomp):
+            ncomp = np.array([ncomp])
+        else:
+            ncomp = np.array(ncomp)
+    
+        nncomp = len(ncomp)
+        
+        stim_threshold = []
+        
+        if nncomp == 1:
+            residuals = residuals.reshape(1,residuals.shape[0], 
+                                        residuals.shape[1],residuals.shape[2])
+            frames = frames.reshape(1, frames.shape[0], frames.shape[1])
+        
+        for i,n in enumerate(ncomp):
+            this_inverse = inverse_stim_map(residuals[i], angle_list, 
+                            imlib=imlib, nproc = nproc)
+            
+            if conv:
+                this_inverse = masked_gaussian_convolution(this_inverse, mask, fwhm)
+            
+            if mask is not None:
+                if np.isscalar(mask):
+                    this_inverse = mask_circle(this_inverse, mask)
+                else:
+                    this_inverse *= mask
+                    
+                pxl_mask = np.where((mask == 1) & (this_inverse > 0))
+            else:
+                pxl_mask = np.where(this_inverse > 0)
+                
+                
+            if progressive_thr:
+                this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
+            else:
+                this_max = np.nanmax(this_inverse)
+                
+                
+            y, x = frames[i].shape
+            twopi = 2 * np.pi
+            yy = np.zeros((len(an_dist), n_fc))
+            xx = np.zeros((len(an_dist), n_fc))
+            fluxes = np.zeros((len(an_dist), n_fc))
+            for k,a in enumerate(an_dist):
+                for b in range(n_fc):
+                    sigposy = y / 2 + np.sin(b / n_fc * twopi) * a
+                    sigposx = x / 2 + np.cos(b / n_fc * twopi) * a
+                    
+                    yy[k,b] = sigposy
+                    xx[k,b] = sigposx
+                    
+                apertures = CircularAperture(np.array((xx[k], yy[k])).T, np.mean(fwhm) / 2)
+                these_fluxes = aperture_photometry(frames[i], apertures)
+                these_fluxes = np.array(these_fluxes["aperture_sum"])
+                fluxes[k] = these_fluxes
+            
+            stim_threshold.append([this_max, np.mean(this_inverse[pxl_mask]), 
+                                   np.std(this_inverse[pxl_mask]), 1, fluxes])
+            
+            if sigma is not None:
+                stim_threshold[i,3] = (stim_threshold[i,1]+sigma*stim_threshold[i,2])/stim_threshold[i,0]
+                
+            
+    elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
+        this_inverse = stim_map(residuals_)
+        
+        if conv:
+            this_inverse = masked_gaussian_convolution(this_inverse, mask, fwhm)
+        
+        if mask is not None:
+            if np.isscalar(mask):
+                this_inverse = mask_circle(this_inverse, mask)
+            else:
+                this_inverse *= mask
+                
+            pxl_mask = np.where((mask == 1) & (this_inverse > 0))
+        else:
+            pxl_mask = np.where(this_inverse > 0)
+            
+        if progressive_thr:
+            this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
+        else:
+            this_max = np.nanmax(this_inverse)
+            
+            
+        y, x = frames.shape
+        twopi = 2 * np.pi
+        yy = np.zeros((len(an_dist), n_fc))
+        xx = np.zeros((len(an_dist), n_fc))
+        fluxes = np.zeros((len(an_dist), n_fc))
+        for k,a in enumerate(an_dist):
+            for b in range(n_fc):
+                sigposy = y / 2 + np.sin(b / n_fc * twopi) * a
+                sigposx = x / 2 + np.cos(b / n_fc * twopi) * a
+                
+                yy[k,b] = sigposy
+                xx[k,b] = sigposx
+                
+            apertures = CircularAperture(np.array((xx[k], yy[k])).T, np.mean(fwhm) / 2)
+            these_fluxes = aperture_photometry(frames, apertures)
+            these_fluxes = np.array(these_fluxes["aperture_sum"])
+            fluxes[k] = these_fluxes
+        
+        stim_threshold = []
+        stim_threshold.append([this_max, np.mean(this_inverse[pxl_mask]), 
+                               np.std(this_inverse[pxl_mask]), 1, fluxes])
+        
+        if sigma is not None:
+            stim_threshold[0,3] = (stim_threshold[0,1]+sigma*stim_threshold[0,2])/stim_threshold[0,0]
+
+
+    completeness_theta_map = np.ones((len(an_dist), n_fc, 3))
+
+    # We crop the PSF and check if PSF has been normalized (so that flux in
+    # 1*FWHM aperture = 1) and fix if needed
+    new_psf_size = int(round(3 * fwhm_med))
+    if new_psf_size % 2 == 0:
+        new_psf_size += 1
+    # Normalize psf
+    if len(cube.shape) == 3:
+        psf = normalize_psf(
+            psf, fwhm=fwhm, verbose=False, size=min(new_psf_size, psf.shape[1])
+            )
+    else:
+        nch = cube.shape[0]
+        V = [normalize_psf(psf[i], fwhm[i], size=20, imlib='ndimage-fourier', force_odd = True, full_output = True) for i in range(0, nch, 1)]
+        psf, _, _ = [], [], []
+        for i in range(0, nch, 1):
+            psf.append(V[i][0])
+        psf = np.array(psf)
+    
+    #nbr_to_detect = int(round(completeness * n_fc))
+    #max_missed = int(n_fc - nbr_to_detect)
+    
+    
+    if transmission is None:
+        transmission_factors = np.ones(len(an_dist))
+    else:
+        transmission_factors = np.interp(an_dist, transmission[0], transmission[1], right = 1, left = 0)
+    
+
+    for k in range(len(an_dist)):
+        a = an_dist[k]
+
+        if verbose:
+            print("*** Calculating contrast at r = {} ***".format(a))
+
+        err_msg = "Could not converge on a contrast level matching required "
+        err_msg += "completeness within {} iterations. Tested level: {}. "
+        err_msg += "Is there too much self-subtraction? Consider decreasing "
+        err_msg += "ncomp if using PCA, or increasing minimum requested radius."
+        
+        stim_maps = np.zeros((len(an_dist), n_fc, y, x))
+        
+        for b in range(0, n_fc):
+            level = ini_contrast[k]
+            stop_thr = level/precision
+            prev = 0
+            this_bound = [0, 1]
+            cond = this_bound[0] == 0 or this_bound[1] == 1
+            this_stim_map = np.zeros_like(cube[0])
+            
+            ii = 0
+            while ii < max_iter:
+                if verbose and not cond:
+                    print('Current contrast bounds: ', this_bound)
+            
+                res = np.zeros((n_fc,2))
+
+                this_result = _stim_fc(a,an_dist,b,level, n_fc, cube, psf, angle_list, 
+                        fwhm, algo, algo_dict, stim_threshold, through_thresh, 
+                        mask, conv, starphot, transmission_factors[k])
+                
+                res[b] = this_result[0:2]
+                this_stim_map = this_result[2]
+                
+                if res[b][0] <= 0:
+                    this_bound[0] = level
+                    if this_bound[0] == 1:
+                        print('No contrast lower than 1 found for theta = ', b * 360/n_fc)
+                        ii = max_iter
+                        break
+                    if this_bound[1] == 1:
+                        prev = level
+                        level *= 1.5
+                        if level > 1:
+                            level = 1
+                        stop_thr = level*precision
+                    else:
+                        prev = level
+                        level = np.mean(this_bound)
+                        stop_thr = level*precision
+                else:
+                    this_bound[1] = level
+                    stim_maps[k, b] = this_stim_map
+                    if this_bound[0] == 0:
+                        prev = level
+                        level *= 0.75
+                        stop_thr = level*precision
+                    else:
+                        prev = level
+                        level = np.mean(this_bound)
+                        stop_thr = level*precision
+                             
+                if np.abs(this_bound[1] - this_bound[0]) < stop_thr*2:
+                    if verbose:
+                        print('Precision reached for theta = ', b * 360/n_fc, ' : ', this_bound)
+                    break
+                ii += 1
+                        
+            completeness_theta_map[k, b] = [level, *this_bound]
+            
+            if ii >= max_iter:
+                if this_bound[0] == 1:
+                    print('Check that there is not too much self-subtraction')
+                else:
+                    print('Could not find contrast for the requested precision within \
+                      the amount of iterations allocated') 
+
+    return an_dist, completeness_theta_map, stim_maps
 
 
 # TODO: Include the algo_class in the metrics tutorial !!

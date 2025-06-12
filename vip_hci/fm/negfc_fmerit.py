@@ -35,6 +35,7 @@ def chisquare(
     interpolation="lanczos4",
     algo_options={},
     transmission=None,
+    radial_gradient=False,
     mu_sigma=(0, 1),
     weights=None,
     force_rPA=False,
@@ -235,7 +236,8 @@ def chisquare(
         imlib=imlib_sh,
         interpolation=interpolation,
         transmission=transmission,
-        verbose=False
+        verbose=False,
+        radial_gradient=radial_gradient
     )
 
     # Perform PCA and extract the zone of interest

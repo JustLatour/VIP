@@ -991,5 +991,11 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
         cube_data = np.pad(cube_data, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
         cube_data_ = np.pad(cube_data_, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
         inter_images = np.pad(inter_images, ((0,0),(pad,pad),(pad,pad)), mode = 'constant', constant_values = 0)
+        
+    if nch > 0:
+        total_im = np.zeros(nch+1, dtype = int)
+        for c in range(nch):
+            total_im[c+1:] = total_im[c+1:] + n[c]
+        
     
     return cube_data, cube_data_, result, loss.item(), matrix, inter_images

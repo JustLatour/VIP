@@ -917,9 +917,11 @@ def _adi_rdi_pca(
     
     if mode == 'ARDI':
         n_ref = cube_ref.shape[0]
+        crop_size = int(np.min((30, cube.shape[-1]-2)))
         corr_values = cube_detect_badfr_correlation(cube, 
                     np.median(cube, axis = 0), plot = False, 
-                    full_output = True, verbose = False)[2]
+                    full_output = True, verbose = False,
+                    crop_size = crop_size)[2]
         indices = np.argsort(corr_values)[::-1][0:n_ref]
         
         cube_ref = np.concatenate((cube[indices], cube_ref), axis=0)

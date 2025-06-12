@@ -22,7 +22,8 @@ from .negfc_mcmc import confidence
 def speckle_noise_uncertainty(cube, p_true, angle_range, derot_angles, algo,
                               psfn, fwhm, aperture_radius, opp_ang=False,
                               indep_ap=False, cube_ref=None, fmerit='sum',
-                              algo_options={}, transmission=None, mu_sigma=None,
+                              algo_options={}, transmission=None,
+                              radial_gradient=False, mu_sigma=None,
                               wedge=None, weights=None, force_rPA=False,
                               ndet=None, nproc=None, simplex_options=None,
                               bins=None, save=False, output=None, verbose=True,
@@ -236,7 +237,8 @@ def speckle_noise_uncertainty(cube, p_true, angle_range, derot_angles, algo,
         planet_parameter[0, 2] = f_true
     cube_pf = cube_planet_free(planet_parameter, cube, derot_angles, psfn,
                                imlib=imlib, interpolation=interpolation,
-                               transmission=transmission)
+                               transmission=transmission,
+                               radial_gradient=radial_gradient)
 
     # Measure mu and sigma once in the annulus (instead of each MCMC step)
     if isinstance(mu_sigma, tuple):
@@ -260,8 +262,8 @@ def speckle_noise_uncertainty(cube, p_true, angle_range, derot_angles, algo,
 
     res = pool_map(nproc, _estimate_speckle_one_angle, iterable(angle_range),
                    cube_pf, psfn, derot_angles, r_true, f_true, fwhm,
-                   aperture_radius, cube_ref, fmerit, algo, algo_options,
-                   transmission, mu_sigma, weights, force_rPA, ndet,
+                   aperture_radius, cube_ref, fmerit, algo, algo_options, 
+                   transmission, radial_gradient, mu_sigma, weights, force_rPA, ndet,
                    simplex_options, imlib, interpolation, verbose=verbose)
     residuals = np.array(res)
 
@@ -269,7 +271,8 @@ def speckle_noise_uncertainty(cube, p_true, angle_range, derot_angles, algo,
         res = pool_map(nproc, _estimate_speckle_one_angle,
                        iterable(angle_range), cube_pf, psfn, -derot_angles,
                        r_true, f_true, fwhm, aperture_radius, cube_ref, fmerit,
-                       algo, algo_options, transmission, mu_sigma, weights,
+                       algo, algo_options,
+                       transmission, radial_gradient, mu_sigma, weights,
                        force_rPA, ndet, simplex_options, imlib, interpolation,
                        verbose=verbose)
         residuals2 = np.array(res)
@@ -339,10 +342,15 @@ def speckle_noise_uncertainty(cube, p_true, angle_range, derot_angles, algo,
         for ch in range(nch):
             labels.append('f{}'.format(ch))
 
-    mean_dev, sp_unc = confidence(offset, cfd=68.27, bins=bins,
+    try:
+        mean_dev, sp_unc = confidence(offset, cfd=68.27, bins=bins,
                                   gaussian_fit=True, verbose=verbose,
                                   save=False, output_dir='', labels=labels,
                                   force=True, plot=verbose)
+    except Exception as e:
+        print(e)
+        return p_simplex, offset, chi2, nit, success
+        
     if plot:
         plt.show()
 
@@ -354,7 +362,9 @@ def speckle_noise_uncertainty(cube, p_true, angle_range, derot_angles, algo,
 
 def _estimate_speckle_one_angle(angle, cube_pf, psfn, angs, r_true, f_true,
                                 fwhm, aperture_radius, cube_ref, fmerit, algo,
-                                algo_options, transmission, mu_sigma, weights,
+                                algo_options,
+                                transmission, radial_gradient, 
+                                mu_sigma, weights,
                                 force_rPA, ndet, simplex_options, imlib,
                                 interpolation, verbose=True):
 
@@ -365,7 +375,7 @@ def _estimate_speckle_one_angle(angle, cube_pf, psfn, angs, r_true, f_true,
                                      rad_dists=[r_true], n_branches=1,
                                      theta=angle, transmission=transmission,
                                      imlib=imlib, interpolation=interpolation,
-                                     verbose=False)
+                                     verbose=False, radial_gradient=radial_gradient)
 
     ncomp = algo_options.get('ncomp', 1)
     annulus_width = algo_options.get('annulus_width', int(fwhm))
@@ -385,6 +395,7 @@ def _estimate_speckle_one_angle(angle, cube_pf, psfn, angs, r_true, f_true,
                                      algo_options=algo_options, imlib=imlib,
                                      interpolation=interpolation,
                                      transmission=transmission,
+                                     radial_gradient=radial_gradient,
                                      mu_sigma=mu_sigma, weights=weights,
                                      force_rPA=force_rPA, ndet=ndet,
                                      options=simplex_options,
