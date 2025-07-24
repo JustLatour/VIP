@@ -41,6 +41,7 @@ def chisquare(
     force_rPA=False,
     ndet=None,
     debug=False,
+    plot=False
 ):
     r"""
     Calculate the reduced :math:`\chi^2`:
@@ -263,6 +264,7 @@ def chisquare(
         imlib=imlib_rot,
         interpolation=interpolation,
         full_output=full_output,
+        plot=plot,
     )
 
     if full_output:
@@ -347,6 +349,7 @@ def get_values_optimize(
     algo_options={},
     weights=None,
     full_output=False,
+    plot=False
 ):
     """Extracts a PCA-ed annulus from the cube and returns the flux values of
     the pixels included in a circular aperture centered at a given position.
@@ -483,6 +486,9 @@ def get_values_optimize(
         max_frames_lib = algo_options.get("max_frames_lib", 200)
         radius_int = max(1, int(np.floor(r_guess - annulus_width / 2)))
         radius_int = algo_options.get("radius_int", radius_int)
+        asize = annulus_width
+        asize = algo_options.get("asize", asize)
+        annulus_width = asize
         # crop cube to just be larger than annulus => FASTER PCA
         crop_sz = int(2 * np.ceil(radius_int + annulus_width + 1))
         if not crop_sz % 2:
@@ -493,6 +499,7 @@ def get_values_optimize(
         else:
             crop_cube = cube
             pad = 0
+            
         if algo == pca_annular:
             res_tmp = algo(
                 cube=crop_cube,
@@ -564,6 +571,10 @@ def get_values_optimize(
         )
     else:
         res = algo(cube=cube, angle_list=angs, **algo_options)
+        
+    
+    if plot:
+        plot_frames(res)
 
     indices = disk((posy, posx), radius=aperture_radius * fwhm)
     yy, xx = indices
@@ -785,16 +796,16 @@ def get_mu_and_sigma(
         max_frames_lib = algo_options.get("max_frames_lib", 200)
         nproc = algo_options.get("nproc", 1)
         # crop cube to just be larger than annulus => FASTER PCA
-        crop_sz = int(2 * np.ceil(radius_int + annulus_width + 1))
-        if not crop_sz % 2:
-            crop_sz += 1
-        if crop_sz < cube.shape[1] and crop_sz < cube.shape[2]:
-            pad = int((cube.shape[1] - crop_sz) / 2)
-            crop_cube = cube_crop_frames(cube, crop_sz, verbose=False)
-        else:
-            pad = 0
-            crop_cube = cube
-
+        #crop_sz = int(2 * np.ceil(radius_int + annulus_width + 1))
+        #if not crop_sz % 2:
+        #    crop_sz += 1
+        #if crop_sz < cube.shape[1] and crop_sz < cube.shape[2]:
+        #    pad = int((cube.shape[1] - crop_sz) / 2)
+        ##else:
+        #    pad = 0
+        #    crop_cube = cube
+        crop_cube = cube
+        pad=0
         pca_res_tmp = pca_annular(
             cube=crop_cube,
             angle_list=angs,
