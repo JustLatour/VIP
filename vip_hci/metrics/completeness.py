@@ -1229,14 +1229,14 @@ def completeness_curve_stim(
     else:
         if cube.ndim != 3 and cube.ndim != 4:
             raise TypeError("The input array is not a 3d or 4d cube")
-    if cube.ndim == 3 and (cube.shape[0] != angle_list.shape[0]):
-        raise TypeError("Input parallactic angles vector has wrong length")
-    if cube.ndim == 4 and (cube.shape[1] != angle_list.shape[0]):
-        raise TypeError("Input parallactic angles vector has wrong length")
-    if cube.ndim == 3 and psf.ndim != 2:
-        raise TypeError("Template PSF is not a frame (for ADI case)")
-    if cube.ndim == 4 and psf.ndim != 3:
-        raise TypeError("Template PSF is not a cube (for ADI+IFS case)")
+        if cube.ndim == 3 and (cube.shape[0] != angle_list.shape[0]):
+            raise TypeError("Input parallactic angles vector has wrong length")
+        if cube.ndim == 4 and (cube.shape[1] != angle_list.shape[0]):
+            raise TypeError("Input parallactic angles vector has wrong length")
+        if cube.ndim == 3 and psf.ndim != 2:
+            raise TypeError("Template PSF is not a frame (for ADI case)")
+        if cube.ndim == 4 and psf.ndim != 3:
+            raise TypeError("Template PSF is not a cube (for ADI+IFS case)")
     if nproc is None:
         nproc = cpu_count() // 2
 
