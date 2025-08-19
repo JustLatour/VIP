@@ -1226,8 +1226,9 @@ def completeness_curve_stim(
     if isinstance(cube, list):
         if cube[0].ndim != 3:
             raise TypeError("The input array is not a list of 3d cubes")
-    if cube.ndim != 3 and cube.ndim != 4:
-        raise TypeError("The input array is not a 3d or 4d cube")
+    else:
+        if cube.ndim != 3 and cube.ndim != 4:
+            raise TypeError("The input array is not a 3d or 4d cube")
     if cube.ndim == 3 and (cube.shape[0] != angle_list.shape[0]):
         raise TypeError("Input parallactic angles vector has wrong length")
     if cube.ndim == 4 and (cube.shape[1] != angle_list.shape[0]):
