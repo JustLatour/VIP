@@ -1356,7 +1356,11 @@ def completeness_curve_stim(
             residuals = output[0]
             frames = output[2]
         elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
-            output = algo(cube=cube, angle_list=-angle_list, 
+            if isinstance(angle_list, list):
+                opp_angles = [-L for L in angle_list]
+            else:
+                opp_angles = -angle_list
+            output = algo(cube=cube, angle_list=opp_angles, 
                              **algo_dict)
             
             frames = output[2]

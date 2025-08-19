@@ -4,7 +4,7 @@
 The concept was proposed in [PAI18]_ and [PAI21].
 
 .. [PAI18]
-   | Pairet et al. 2018
+6rm   | Pairet et al. 2018
    | **Reference-less algorithm for circumstellar disks imaging**
    | *In Proceedings of iTWIST'18, 23*
    | `https://arxiv.org/abs/1812.01333
@@ -298,10 +298,10 @@ def ipca(*all_args: List, **all_kwargs: dict):
 
     def _find_significant_signals(residuals_cube, residuals_cube_, angle_list,
                                   thr, mask=0, r_out=None, r_max=None, thr_pro = False,
-                                  fwhm=4, width=1):
+                                  fwhm=4, width=1, **rot_options):
         # Identifies significant signals with STIM map (outside mask)
         stim = stim_map(residuals_cube_)
-        inv_stim = inverse_stim_map(residuals_cube, angle_list)
+        inv_stim = inverse_stim_map(residuals_cube, angle_list, **rot_options)
         if mask:
             inv_stim = mask_circle(inv_stim, mask)
             
@@ -499,7 +499,8 @@ def ipca(*all_args: List, **all_kwargs: dict):
                                                     r_out=algo_params.r_out,
                                                     thr_pro=thr_pro,
                                                     fwhm=algo_params.fwhm,
-                                                    width=algo_params.width)
+                                                    width=algo_params.width,
+                                                    **rot_options)
     else:
         sig_mask = np.ones_like(frame)
         sig_mask[np.where(frame < algo_params.thr)] = 0
@@ -598,7 +599,8 @@ def ipca(*all_args: List, **all_kwargs: dict):
                                                             r_out=algo_params.r_out,
                                                             thr_pro=thr_pro,
                                                             fwhm=algo_params.fwhm,
-                                                            width=algo_params.width)
+                                                            width=algo_params.width,
+                                                            **rot_options)
             else:
                 sig_mask = np.ones_like(frame)
                 sig_mask[np.where(frame < algo_params.thr)] = 0
