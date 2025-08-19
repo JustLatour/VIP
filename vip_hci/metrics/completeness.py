@@ -1223,6 +1223,9 @@ def completeness_curve_stim(
     if (100 * completeness) % (100 / n_fc) > 0:
         n_fc = int(100 / gcd(int(100 * completeness), 100))
 
+    if isinstance(cube, list):
+        if cube[0].ndim != 3:
+            raise TypeError("The input array is not a list of 3d cubes")
     if cube.ndim != 3 and cube.ndim != 4:
         raise TypeError("The input array is not a 3d or 4d cube")
     if cube.ndim == 3 and (cube.shape[0] != angle_list.shape[0]):
