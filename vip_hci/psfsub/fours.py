@@ -745,7 +745,7 @@ def annulus_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template =
 
 
 
-def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template = None,
+def multi_cube_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_template = None,
             radius_mask = 0.75, L2_penalty = 0, iterations = 100, lr = 0.1,
             history_size = 10, max_iter = 20, limit = 0, verbose = False, 
             L2_exempt = False, psf_mask = True, std_norm = True,
@@ -777,14 +777,14 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
     if verbose:
         start = time.time()
     
-    nch = len(big_cube)
+    nch = len(cube)
     n = np.zeros(nch, dtype = int)
     y = np.zeros(nch, dtype = int)
     x = np.zeros(nch, dtype = int)
     for c in range(nch):
-        n[c],y[c],x[c] = big_cube[c].shape
+        n[c],y[c],x[c] = cube[c].shape
     
-    n0, y0, x0 = big_cube[0].shape
+    n0, y0, x0 = cube[0].shape
     
     if nproc is not None:
         if isinstance(nproc, list):
@@ -793,7 +793,7 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
             raise ValueError("nproc must be None or a list")
         
     
-    cube = []
+    big_cube = []
     cropped = False
     if asize is not None:
         if y[-1] % 2 == 0:
@@ -803,12 +803,12 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
             
         for c in range(nch):
             if y[-1] > new_size:
-                cube.append(cube_crop_frames(big_cube[c], new_size, verbose = False))
+                big_cube.append(cube_crop_frames(cube[c], new_size, verbose = False))
                 cropped = True
             else:
-                cube.append(big_cube[c])
+                big_cube.append(cube[c])
         
-        yy,xx = get_annulus_segments(cube[0][0], inner_radius, asize, nsegm = 1, mode = 'ind')[0]
+        yy,xx = get_annulus_segments(big_cube[0][0], inner_radius, asize, nsegm = 1, mode = 'ind')[0]
     else:
         yy,xx = np.meshgrid(np.arange(0,y), np.arange(0,y))
         yy = yy.T.flatten()
@@ -820,7 +820,7 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
     x = np.zeros(nch, dtype = int)
     total_im = np.zeros(nch+1, dtype = int)
     for c in range(nch):
-        n[c],y[c],x[c] = cube[c].shape
+        n[c],y[c],x[c] = big_cube[c].shape
         total_im[c+1:] = total_im[c+1:] + n[c]
     y = int(y[-1])
     x = int(x[-1])
@@ -848,7 +848,7 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
 
     inter_images = []
     
-    annulus_mask = np.zeros_like(cube[-1][0])
+    annulus_mask = np.zeros_like(big_cube[-1][0])
     annulus_mask[yy,xx] = 1
     
     if np.isscalar(angle_list[0]):
@@ -860,7 +860,7 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
     mean = torch.zeros((nch,nbr_pixels), device = device, dtype = torch.float32)
     std = torch.zeros((nch,nbr_pixels), device = device, dtype = torch.float32)
     for c in range(nch):
-        input_data.append(torch.tensor(cube[c][:,yy,xx], dtype = torch.float32, device = device))
+        input_data.append(torch.tensor(big_cube[c][:,yy,xx], dtype = torch.float32, device = device))
         angle_lists.append(torch.tensor(angle_list[c], dtype = torch.float32, device = device))
         mean[c] = torch.mean(input_data[c], axis = 0)
         std[c] = torch.std(input_data[c], axis = 0)
@@ -894,7 +894,7 @@ def multi_cube_4S(big_cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_tem
     
     all_grids = []
     for c in range(nch):
-        grid_size = torch.tensor(cube[c]).unsqueeze(1).size()
+        grid_size = torch.tensor(big_cube[c]).unsqueeze(1).size()
         radians = - torch.deg2rad(angle_lists[c])
         cos_theta = torch.cos(radians)
         sin_theta = torch.sin(radians)

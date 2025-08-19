@@ -1246,7 +1246,7 @@ def completeness_curve_stim(
         fwhm_med = fwhm
 
     if an_dist is None:
-        raise TypeError("Please decfine the distances")
+        raise TypeError("Please define the distances")
 
     if ini_contrast is None:
         print("Contrast curve not provided => will be computed first...")
@@ -1288,7 +1288,9 @@ def completeness_curve_stim(
     # Consider 3 cases depending on whether algo is (i) defined externally,
     # (ii) a VIP postproc algorithm; (iii) ineligible for contrast curves
     argl = getfullargspec(algo).args
+    print(argl)
     if "cube" in argl and "angle_list" in argl and "verbose" in argl:
+        print('ok')
         # (i) external algorithm with appropriate parameters [OK]
         pass
     else:
