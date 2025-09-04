@@ -62,6 +62,7 @@ from ..config.paramenum import (
 )
 
 
+
 from scipy import signal
 
 
@@ -323,7 +324,8 @@ def _stim_fc(
     conv=False,
     starphot=1,
     transmission=None,
-    snr=False
+    snr=False,
+    check_max=False
 ):
     flevel = level * np.mean([starphot])
     
@@ -336,7 +338,6 @@ def _stim_fc(
         psf,
         angle_list,
         flevel=flevel,
-        plsc=0.1,
         rad_dists=a,
         theta=b / n_fc * 360,
         n_branches=1,
@@ -477,6 +478,12 @@ def _stim_fc(
         stim_value = np.zeros(nncomp)
         throughput = np.zeros(nncomp)
         snrmaps = np.zeros((nncomp, frame_fin.shape[-2], frame_fin.shape[-1]))
+        
+        
+    annulus = np.ones_like(frame_fin[0])
+    if check_max:
+        annulus = mask_circle(annulus, a-fwhm_med)
+        annulus = mask_circle(annulus, a+fwhm_med, mode = 'out')
     
     for i,n in enumerate(ncomp):
         
@@ -491,7 +498,6 @@ def _stim_fc(
         #max_target = np.nan_to_num(snrmap_fin[indc[0], indc[1]]).max()
         #mean_target = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]]).mean()
         #stim_map_fc[i][indc[0], indc[1]] = 0
-        #max_map = np.nan_to_num(stim_map_fc[i]).max()
         
         pxl_values = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]])
         these_indices = np.where(pxl_values>0)
@@ -513,6 +519,12 @@ def _stim_fc(
         
         if this_throughput < through_thresh:
             result[i] = 0
+            
+        if check_max:
+            max_map = np.nan_to_num(stim_map_fc[i]*annulus).max()
+            max_target = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]]).max()
+            if max_map > max_target:
+                result[i] = 0
             
         if snr:
             if len(these_indices[0]) <= 1:
@@ -1115,6 +1127,7 @@ def completeness_curve_stim(
     progressive_thr=True,
     width = 1.5,
     mask=None,
+    check_max=False,
     algo_dict={},
     verbose=True,
     plot=True,
@@ -1288,9 +1301,7 @@ def completeness_curve_stim(
     # Consider 3 cases depending on whether algo is (i) defined externally,
     # (ii) a VIP postproc algorithm; (iii) ineligible for contrast curves
     argl = getfullargspec(algo).args
-    print(argl)
     if "cube" in argl and "angle_list" in argl and "verbose" in argl:
-        print('ok')
         # (i) external algorithm with appropriate parameters [OK]
         pass
     else:
@@ -1553,7 +1564,7 @@ def completeness_curve_stim(
             for b in range(0,n_fc):
                 this_result = _stim_fc(a,an_dist,b,level, n_fc, cube, psf, angle_list, 
                         fwhm, algo, algo_dict, stim_threshold, through_thresh, 
-                        mask, conv, starphot, transmission)
+                        mask, conv, starphot, transmission, False, check_max)
                 
                 res[b] = this_result[0:2]
                 stim_maps[b] = this_result[2]
@@ -2936,7 +2947,6 @@ def completeness_curve_stim_pca(
                 
             
             cond = level_bound[0] is None or level_bound[1] is None
-            print(cond)
             if not cond:
                 if np.abs(prev - level) < stop_thr:
                     print('precision reached')

@@ -12,6 +12,7 @@ from multiprocessing import cpu_count
 import numpy as np
 from scipy import stats
 from scipy.interpolate import interp1d
+from hciplot import plot_frames
 
 try:
     from photutils.aperture import aperture_photometry, CircularAperture
