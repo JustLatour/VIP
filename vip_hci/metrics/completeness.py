@@ -327,31 +327,56 @@ def _stim_fc(
     snr=False,
     check_max=False
 ):
-    flevel = level * np.mean([starphot])
+    
+    if np.isscalar(starphot):
+        flevel = level * starphot
+    elif isinstance(starphot, list):
+        starphot = np.array(starphot)
+    if isinstance(starphot, np.ndarray):
+        flevel = level * np.mean(starphot)
     
     radial_gradient = False
     if transmission is not None:
         radial_gradient = True
         
-    cubefc = cube_inject_companions(
-        cube,
-        psf,
-        angle_list,
-        flevel=flevel,
-        rad_dists=a,
-        theta=b / n_fc * 360,
-        n_branches=1,
-        verbose=False,
-        transmission=transmission,
-        radial_gradient=radial_gradient
-    )
+    if isinstance(cube, np.ndarray):
+        cubefc = cube_inject_companions(
+            cube,
+            psf,
+            angle_list,
+            flevel=flevel,
+            rad_dists=a,
+            theta=b / n_fc * 360,
+            n_branches=1,
+            verbose=False,
+            transmission=transmission,
+            radial_gradient=radial_gradient
+            )
+    else:
+        cubefc = []
+        for i in range(len(cube)):
+            this_cubefc = cube_inject_companions(
+                cube[i],
+                psf[i],
+                angle_list[i],
+                flevel=flevel,
+                rad_dists=a,
+                theta=b / n_fc * 360,
+                n_branches=1,
+                verbose=False,
+                transmission=transmission,
+                radial_gradient=radial_gradient
+                )
+            cubefc.append(this_cubefc)
 
     if isinstance(fwhm, (np.ndarray, list)):
         fwhm_med = np.median(fwhm)
     else:
         fwhm_med = fwhm
 
-    if cube.ndim == 4:
+    if isinstance(cube, list):
+        cy, cx = frame_center(cube[0][0])
+    elif cube.ndim == 4:
         cy, cx = frame_center(cube[0, 0, :, :])
     else:
         cy, cx = frame_center(cube[0])
@@ -1373,8 +1398,15 @@ def completeness_curve_stim(
             residuals = output[0]
             frames = output[2]
         elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
-            if isinstance(angle_list, list):
-                opp_angles = [-L for L in angle_list]
+            if isinstance(cube, list) or (isinstance(cube, np.ndarray) and len(cube.shape) == 4):
+                if isinstance(cube, list):
+                    nch = len(cube)
+                else:
+                    nch = cube.shape[0]
+                if isinstance(angle_list, list):
+                    opp_angles = [-L for L in angle_list]
+                else:
+                    opp_angles = [-angle_list for i in range(nch)]
             else:
                 opp_angles = -angle_list
             output = algo(cube=cube, angle_list=opp_angles, 
