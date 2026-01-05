@@ -531,7 +531,7 @@ def get_multi_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pix
         cube_data_[total_im[c]:total_im[c+1]] = torch_cube_derotate_batch(this_cube_data, all_grids[c]).squeeze(1)
         
         if get_channels:
-            channels.append(torch.median(cube_data_[total_im[c]:total_im[c+1]], axis = 0).detach().numpy())
+            channels.append(torch.median(cube_data_[total_im[c]:total_im[c+1]], axis = 0)[0].detach().numpy())
     
     if get_channels:
         return this_matrix, cube_data, cube_data_, np.array(channels)
