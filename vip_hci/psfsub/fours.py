@@ -484,8 +484,9 @@ def get_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pixels, s
     
     return this_matrix, cube_data, cube_data_
 
+
 def get_multi_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pixels, shape, yy, xx, psf_model, device,
-                          std_norm = False, std = 1):
+                          std_norm = False, std = 1, get_channels = False):
     
     nch, n, y, x = shape
     
@@ -514,6 +515,8 @@ def get_multi_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pix
     output_data = []
     cube_data = torch.zeros((total_im[-1], y, x), device = device)
     cube_data_ = torch.zeros((total_im[-1], y, x), device = device)
+    
+    channels = []
     for c in range(nch):
         output_data.append(input_data[c] - torch.matmul(input_data[c], this_matrix[c]))
         
@@ -526,8 +529,14 @@ def get_multi_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pix
         cube_data[total_im[c]:total_im[c+1],yy,xx] = output_data[c]
 
         cube_data_[total_im[c]:total_im[c+1]] = torch_cube_derotate_batch(this_cube_data, all_grids[c]).squeeze(1)
+        
+        if get_channels:
+            channels.append(torch.median(cube_data_[total_im[c]:total_im[c+1]], axis = 0).detach().numpy())
     
-    return this_matrix, cube_data, cube_data_
+    if get_channels:
+        return this_matrix, cube_data, cube_data_, np.array(channels)
+    else:
+        return this_matrix, cube_data, cube_data_
 
 
 
@@ -750,7 +759,7 @@ def multi_cube_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_templat
             history_size = 10, max_iter = 20, limit = 0, verbose = False, 
             L2_exempt = False, psf_mask = True, std_norm = True,
             nproc = None, imlib = "vip-fft", interpolation = "lanczos4", 
-            convolve = False, precision = 0.01,
+            convolve = False, precision = 0.01, full_output = True,
             var = False, device = None):
     
     
@@ -966,9 +975,9 @@ def multi_cube_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_templat
         nproc = None
         restore_cpu_cores(original)
         
-    _, cube_data, cube_data_ = get_multi_residual_sequence(input_data, 
+    _, cube_data, cube_data_, channels = get_multi_residual_sequence(input_data, 
              matrix*mask_array, all_grids, convolve, nbr_pixels, (nch, n,y,x), yy, xx, psf_model, device,
-             std_norm, std)
+             std_norm, std, get_channels = True)
 
     cube_data = cube_data.detach().cpu().numpy()
     cube_data_ = cube_data_.detach().cpu().numpy()
@@ -996,6 +1005,8 @@ def multi_cube_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_templat
         total_im = np.zeros(nch+1, dtype = int)
         for c in range(nch):
             total_im[c+1:] = total_im[c+1:] + n[c]
-        
-    
-    return cube_data, cube_data_, result, loss.item(), matrix, inter_images
+
+    if full_output:
+        return cube_data, cube_data_, result, channels, loss.item(), matrix, inter_images
+    else:
+        return result
