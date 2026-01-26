@@ -1481,7 +1481,7 @@ def completeness_curve_stim(
                                    np.std(this_inverse[pxl_mask]), 1, fluxes])
             
             if sigma is not None:
-                stim_threshold[i,3] = (stim_threshold[i,1]+sigma*stim_threshold[i,2])/stim_threshold[i,0]
+                stim_threshold[i][3] = (stim_threshold[i][1]+sigma*stim_threshold[i][2])/stim_threshold[i][0]
                 
             
     elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
@@ -1529,7 +1529,7 @@ def completeness_curve_stim(
                                np.std(this_inverse[pxl_mask]), 1, fluxes])
         
         if sigma is not None:
-            stim_threshold[0,3] = (stim_threshold[0,1]+sigma*stim_threshold[0,2])/stim_threshold[0,0]
+            stim_threshold[0][3] = (stim_threshold[0][1]+sigma*stim_threshold[0][2])/stim_threshold[0][0]
 
 
     completeness_curve = np.ones((len(an_dist), 3))
@@ -2052,7 +2052,7 @@ def completeness_curve_snr(
                                    np.std(this_inverse[pxl_mask]), 1, fluxes])
             
             if sigma is not None:
-                stim_threshold[i,3] = (stim_threshold[i,1]+sigma*stim_threshold[i,2])/stim_threshold[i,0]
+                stim_threshold[i][3] = (stim_threshold[i][1]+sigma*stim_threshold[i][2])/stim_threshold[i][0]
                 
             
     elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
@@ -2100,7 +2100,7 @@ def completeness_curve_snr(
                                np.std(this_inverse[pxl_mask]), 1, fluxes])
         
         if sigma is not None:
-            stim_threshold[0,3] = (stim_threshold[0,1]+sigma*stim_threshold[0,2])/stim_threshold[0,0]
+            stim_threshold[0][3] = (stim_threshold[0][1]+sigma*stim_threshold[0][2])/stim_threshold[0][0]
 
 
     completeness_curve = np.ones((len(an_dist), 3))
@@ -3381,7 +3381,7 @@ def completeness_theta_map(
                                    np.std(this_inverse[pxl_mask]), 1, fluxes])
             
             if sigma is not None:
-                stim_threshold[i,3] = (stim_threshold[i,1]+sigma*stim_threshold[i,2])/stim_threshold[i,0]
+                stim_threshold[i][3] = (stim_threshold[i][1]+sigma*stim_threshold[i][2])/stim_threshold[i][0]
                 
             
     elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
@@ -3429,7 +3429,7 @@ def completeness_theta_map(
                                np.std(this_inverse[pxl_mask]), 1, fluxes])
         
         if sigma is not None:
-            stim_threshold[0,3] = (stim_threshold[0,1]+sigma*stim_threshold[0,2])/stim_threshold[0,0]
+            stim_threshold[0][3] = (stim_threshold[0][1]+sigma*stim_threshold[0][2])/stim_threshold[0][0]
 
 
     completeness_theta_map = np.ones((len(an_dist), n_fc, 3))
