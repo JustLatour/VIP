@@ -30,7 +30,7 @@ Module with completeness curve and map generation function.
 
 __author__ = "C.H. Dahlqvist, V. Christiaens, T. Bédrine"
 __all__ = ["completeness_curve", "completeness_map", "completeness_curve_stim", 
-           "plot_fc_results", "completeness_theta_map"]
+           "plot_fc_results", "completeness_theta_map", "completeness_curve_snr"]
 
 from math import gcd
 from inspect import getfullargspec
@@ -42,13 +42,13 @@ from matplotlib import pyplot as plt
 from skimage.draw import disk
 
 from .contrcurve import contrast_curve
-from .snr_source import snrmap, _snr_approx, snr
+from .snr_source import snrmap, _snr_approx, snr, significance
 from .stim import normalized_stim_map, stim_map, inverse_stim_map, make_stim2D_threshold
 from ..config.utils_conf import pool_map, iterable, vip_figsize, vip_figdpi
 from ..fm import cube_inject_companions, normalize_psf
 from ..fm.utils_negfc import find_nearest
 from ..preproc import cube_crop_frames
-from ..var import get_annulus_segments, frame_center, mask_circle
+from ..var import get_annulus_segments, frame_center, mask_circle, frame_filter_lowpass
 
 from hciplot import plot_frames
 from photutils.aperture import CircularAperture, aperture_photometry
@@ -64,6 +64,83 @@ from ..config.paramenum import (
 
 
 from scipy import signal
+from scipy.optimize import curve_fit
+
+
+def gaussian(x, A, mu, sigma):
+    return A * np.exp(-(x - mu)**2 / (2 * sigma**2))
+
+
+def plot_Zmap(image, fwhm, mode = 'stim', minr = 1, maxr = 3, inv_image = None, exclude_negative_lobes = False, plot = True,
+             nbr_bins = 24, mask = None):
+
+    minr *= fwhm
+    maxr *= fwhm
+
+    if mask is None:
+        mask = np.ones_like(image)
+    mask = mask_circle(mask, minr)
+    mask = mask_circle(mask, maxr, mode = 'out')
+
+    yy,xx = np.where(mask == 1)
+
+    bin_edges = nbr_bins
+    
+    if mode == 'stim':
+
+        inv_imageC = frame_filter_lowpass(inv_image, fwhm_size = fwhm)
+        imageC = frame_filter_lowpass(image, fwhm_size = fwhm)
+
+        dataDC = imageC[yy,xx]
+        dataIC = inv_imageC[yy,xx]
+
+        countsI, bin_edges = np.histogram(dataIC, bins='fd')
+
+        space = bin_edges[1] - bin_edges[0]
+        minV = min((np.min(dataDC), np.min(dataIC)))
+        maxV = max((np.max(dataDC), np.max(dataIC)))
+        full_bin_edges = list(bin_edges)
+
+        while full_bin_edges[-1] < maxV:
+            full_bin_edges.append(full_bin_edges[-1] + space)
+
+        while full_bin_edges[0] < minV:
+            full_bin_edges.insert(0, full_bin_edges[0] - space)
+
+        full_bin_edges = np.array(full_bin_edges)
+        
+        if plot:
+            countsD, bin_edges, _ = plt.hist(dataDC, bins=full_bin_edges)
+            countsI, bin_edges, _ = plt.hist(dataIC, bins=full_bin_edges, alpha = 0.5)
+        else:
+            countsD, bin_edges = np.histogram(dataDC, bins=full_bin_edges)
+            countsI, bin_edges = np.histogram(dataIC, bins=full_bin_edges)
+
+        #counts, bin_edges, p = plt.hist(dataIC, bins = bin_edges)
+        
+        bin_centers = 0.5 * (full_bin_edges[:-1] + full_bin_edges[1:])
+
+        p0 = [max(countsI), np.mean(dataIC), np.std(dataIC)]   # initial guesses
+        params, cov = curve_fit(gaussian, bin_centers, countsI, p0=p0)
+
+        A_fit, mu_fit, sigma_fit = params
+
+        this_mu = np.mean(dataIC)
+        this_sigma = np.std(dataIC)
+
+        if plot:
+            x = np.linspace(full_bin_edges[0], full_bin_edges[-1], 400)
+            plt.plot(x, gaussian(x, *params), '-', label='Gaussian fit', color = 'red')
+            plt.show()
+
+        Zmap = (imageC - this_mu)/this_sigma
+        
+        return Zmap, mu_fit, sigma_fit
+        
+    elif mode == 'sig':
+        Zmap = snrmap(image, fwhm, exclude_negative_lobes = exclude_negative_lobes, plot = plot)
+
+        return Zmap
 
 
 def get_adi_res(cube, collapse_ifs = 'mean'):
@@ -141,31 +218,65 @@ def masked_gaussian_convolution(image, mask, fwhm):
 
 
 def _estimate_snr_fc(
-    a,
-    b,
-    level,
-    n_fc,
-    cube,
-    psf,
-    angle_list,
-    fwhm,
-    algo,
-    algo_dict,
-    snrmap_empty,
-    starphot=1,
-    approximated=True,
+     a,
+     an_dist,
+     b,
+     level,
+     n_fc,
+     cube,
+     psf,
+     angle_list,
+     fwhm,
+     algo,
+     algo_dict,
+     through_thresh,
+     sigma=5,
+     exclude_negative_lobes=True,
+     starphot=1,
+     approximated=False,
+     transmission=None,
+     check_max=False
 ):
-    cubefc = cube_inject_companions(
-        cube,
-        psf,
-        angle_list,
-        flevel=level * starphot,
-        plsc=0.1,
-        rad_dists=a,
-        theta=b / n_fc * 360,
-        n_branches=1,
-        verbose=False,
-    )
+    if np.isscalar(starphot):
+        flevel = level * starphot
+    elif isinstance(starphot, list):
+        starphot = np.array(starphot)
+    if isinstance(starphot, np.ndarray):
+        flevel = level * np.mean(starphot)
+    
+    radial_gradient = False
+    if transmission is not None:
+        radial_gradient = True
+    
+    if isinstance(cube, np.ndarray):
+        cubefc = cube_inject_companions(
+            cube,
+            psf,
+            angle_list,
+            flevel=flevel,
+            rad_dists=a,
+            theta=b / n_fc * 360,
+            n_branches=1,
+            verbose=False,
+            transmission=transmission,
+            radial_gradient=radial_gradient
+            )
+    else:
+        cubefc = []
+        for i in range(len(cube)):
+            this_cubefc = cube_inject_companions(
+                cube[i],
+                psf[i],
+                angle_list[i],
+                flevel=flevel,
+                rad_dists=a,
+                theta=b / n_fc * 360,
+                n_branches=1,
+                verbose=False,
+                transmission=transmission,
+                radial_gradient=radial_gradient
+                )
+            cubefc.append(this_cubefc)
 
     if isinstance(fwhm, (np.ndarray, list)):
         fwhm_med = np.median(fwhm)
@@ -205,105 +316,141 @@ def _estimate_snr_fc(
     # param_name = next(iter(algo_params))
     # class_name = algo_params[param_name].annotation
 
+    # TODO: Clean below?
+    # Consider 3 cases depending on whether algo is (i) defined externally,
+    # (ii) a VIP postproc algorithm; (iii) ineligible for contrast curves
+    argl = getfullargspec(algo).args
+    algo_name = algo.__name__
+    if "cube" in argl and "angle_list" in argl and "verbose" in argl:
+        # (i) external algorithm with appropriate parameters [OK]
+        pass
+    else:
+        idx = algo.__module__.index(
+            '.', algo.__module__.index('.') + 1)
+        mod = algo.__module__[:idx]
+        tmp = __import__(
+            mod, fromlist=[algo_name.upper()+'_Params'])
+        algo_params = getattr(tmp, algo_name.upper()+'_Params')
+        argl = [attr for attr in vars(algo_params)]
+        if "cube" in argl and "angle_list" in argl and "verbose" in argl:
+            # (ii) a VIP postproc algorithm [OK]
+            pass
+        else:
+            # (iii) ineligible routine for contrast curves [Raise error]
+            msg = "Ineligible algo for contrast curve function. algo should "
+            msg += "have parameters 'cube', 'angle_list' and 'verbose'"
+            raise TypeError(msg)
+    # algo_params = signature(algo).parameters
+    # param_name = next(iter(algo_params))
+    # class_name = algo_params[param_name].annotation
+
     # argl = [attr for attr in vars(class_name)]
     if "verbose" in argl:
         algo_dict["verbose"] = False
     if "fwhm" in argl:
         algo_dict["fwhm"] = fwhm_med
-    if "radius_int" in argl:
-        if algo_dict.get("asize") is None:
-            annulus_width = int(np.ceil(fwhm))
-        elif isinstance(algo_dict.get("asize"), (int, float)):
-            annulus_width = algo_dict.get("asize")
-
-        if a > 2 * annulus_width:
-            n_annuli = 5
-            radius_int = (a // annulus_width - 2) * annulus_width
-        else:
-            n_annuli = 4
-            radius_int = (a // annulus_width - 1) * annulus_width
-        if 2 * (radius_int + n_annuli * annulus_width) < cube.shape[-1]:
-            cubefc_crop = cube_crop_frames(
-                cubefc,
-                int(2 * (radius_int + n_annuli * annulus_width)),
-                xy=(cx, cy),
-                verbose=False,
-            )
-        else:
-            cubefc_crop = cubefc
-
-        frame_temp = algo(
-            cube=cubefc_crop, angle_list=angle_list, radius_int=radius_int, **algo_dict
+    if "annular" in algo_name:
+        output_temp = algo(
+            cube=cubefc, angle_list=angle_list,
+            full_output = True,
+            **algo_dict
         )
-        frame_fin = np.zeros((cube.shape[-2], cube.shape[-1]))
-        indices = get_annulus_segments(
-            frame_fin, 0, radius_int + n_annuli * annulus_width, 1
-        )
-        sub = (frame_fin.shape[0] - frame_temp.shape[0]) // 2
-        frame_fin[indices[0][0], indices[0][1]] = frame_temp[
-            indices[0][0] - sub, indices[0][1] - sub
-        ]
-    else:
-        frame_fin = algo(cube=cubefc, angle_list=angle_list, **algo_dict)
+        frame_fin = output_temp[2]
+        residuals_ = output_temp[1]
+        residuals = output_temp[0]
+    elif algo_name == 'pca':
+        output_temp = algo(cube=cubefc, angle_list=angle_list, 
+                         full_output = True, **algo_dict)
+        
+        
+        if len(cubefc.shape) == 4:
+            if algo_dict['scale_list'] is None:
+                frame_fin = output_temp[0]
 
-    snrmap_temp = np.zeros_like(frame_fin)
-    cy, cx = frame_center(frame_fin)
-    if "radius_int" in argl:
-        mask = get_annulus_segments(
-            frame_fin, a - (fwhm_med // 2), fwhm_med + 1, mode="mask"
-        )[0]
+            else:
+                if (algo_dict['adimsdi'] == Adimsdi.DOUBLE or 
+                                   algo_dict['cube_ref'] is not None):
+                    frame_fin = output_temp[0]
+                else:
+                    frame_fin = output_temp[0]
+                
+        else:
+            frame_fin = output_temp[0]
+
+    elif '4S' in algo_name or 'FourS' in algo_name:
+        output_temp = algo(cube=cubefc, angle_list=angle_list, 
+                         **algo_dict)
+        
+        frame_fin = output_temp[2]
+
+    if 'pca' in algo_name:
+        ncomp = algo_dict['ncomp']
+        if np.isscalar(ncomp):
+            ncomp = np.array([ncomp])
+        else:
+            ncomp = np.array(ncomp)
+        nncomp = len(ncomp)
+        result = np.zeros((nncomp))
     else:
-        width = min(frame_fin.shape) / 2 - 1.5 * fwhm_med
-        mask = get_annulus_segments(frame_fin, (fwhm_med / 2) + 2, width, mode="mask")[
-            0
-        ]
+        nncomp = 1
+        result = np.zeros(1)
+        ncomp = [0]
+        
+    
+    mask = np.ones_like(frame_fin)
     bmask = np.ma.make_mask(mask)
     yy, xx = np.where(bmask)
-
-    if approximated:
-        coords = [(int(x), int(y)) for (x, y) in zip(xx, yy)]
-        tophat_kernel = Tophat2DKernel(fwhm / 2)
-        frame_fin = convolve(frame_fin, tophat_kernel)
-        res = pool_map(1, _snr_approx, frame_fin,
-                       iterable(coords), fwhm_med, cy, cx)
-        res = np.array(res, dtype=object)
-        yy = res[:, 0]
-        xx = res[:, 1]
-        snr_value = res[:, 2]
-        snrmap_temp[yy.astype(int), xx.astype(int)] = snr_value
-
-    else:
-        coords = zip(xx, yy)
-        res = pool_map(
-            1, snr, frame_fin, iterable(
-                coords), fwhm_med, True, None, False, True
-        )
-        res = np.array(res, dtype=object)
-        yy = res[:, 0]
-        xx = res[:, 1]
-        snr_value = res[:, -1]
-        snrmap_temp[yy.astype("int"), xx.astype("int")] = snr_value
-
-    snrmap_fin = np.where(
-        abs(np.nan_to_num(snrmap_temp)) > 0.000001, 0, snrmap_empty
-    ) + np.nan_to_num(snrmap_temp)
+    
 
     y, x = frame_fin.shape
     twopi = 2 * np.pi
     sigposy = int(y / 2 + np.sin(b / n_fc * twopi) * a)
     sigposx = int(x / 2 + np.cos(b / n_fc * twopi) * a)
+    
+    indc = disk((sigposy, sigposx), fwhm_med/1.5)
+    indc1 = disk((sigposy, sigposx), fwhm_med/2)
+    
+    this_a = np.where(np.array(an_dist) == a)[0][0]
 
-    indc = disk((sigposy, sigposx), fwhm/2)
-    max_target = np.nan_to_num(snrmap_fin[indc[0], indc[1]]).max()
-    snrmap_fin[indc[0], indc[1]] = 0
-    max_map = np.nan_to_num(snrmap_fin).max()
+    annulus = np.ones_like(frame_fin[0])
+    if check_max:
+        annulus = mask_circle(annulus, a-fwhm_med)
+        annulus = mask_circle(annulus, a+fwhm_med, mode = 'out')
+        
+    snrmaps = np.zeros((nncomp, frame_fin.shape[-2], frame_fin.shape[-1]))
+    
+    for i,n in enumerate(ncomp):
+        
+        snrmaps[i] = snrmap(frame_fin, fwhm = fwhm, exclude_negative_lobes = exclude_negative_lobes, 
+               approximated = approximated, verbose = False)
+        
+        
+        pxl_values = np.nan_to_num(snrmaps[i][indc[0], indc[1]])
+        these_indices = np.where(pxl_values>0)
+        
+        
+        pxl_values = np.nan_to_num(snrmaps[i][indc[0], indc[1]])
 
-    if b == 2 and max_target - max_map < 0:
-        from hciplot import plot_frames
+        if len(these_indices[0]) <= 1:
+            result[i] = 0
+        else:
+            this_v = np.nanmax(pxl_values[these_indices])
+            this_v = significance(this_v, a, fwhm = fwhm_med, verbose = False)
+                
+            #result[i] = this_v - stim_thresh[i][3]
+            result[i] = this_v - sigma
+            
+        if check_max:
+            max_map = np.nan_to_num(snrmaps[i]*annulus).max()
+            max_target = np.nan_to_num(snrmaps[i][indc[0], indc[1]]).max()
+            if max_map > max_target:
+                result[i] = 0
+            
+        
+    if nncomp == 1:
+        result = result[0]
 
-        #plot_frames((snrmap_empty, snrmap_temp, snrmap_fin))
-
-    return max_target - max_map, b
+    return result, b, snrmaps, frame_fin
 
 
 def _stim_fc(
@@ -325,7 +472,10 @@ def _stim_fc(
     starphot=1,
     transmission=None,
     snr=False,
-    check_max=False
+    check_max=False,
+    inv_stim=None,
+    sigma=5,
+    width=1.5
 ):
     
     if np.isscalar(starphot):
@@ -512,10 +662,24 @@ def _stim_fc(
     
     for i,n in enumerate(ncomp):
         
-        stim_map_fc[i] = stim_map(residuals_[i])/stim_thresh[i][0]
+        stim_map_fc[i] = stim_map(residuals_[i])
         
-        if conv:
-            stim_map_fc[i] = masked_gaussian_convolution(stim_map_fc[i], mask, fwhm)
+        if sigma is not None:
+            Zmap,_,_ = plot_Zmap(stim_map_fc[i], fwhm, mode = 'stim', mask = mask,
+                       minr = (a/fwhm)-width/2, maxr = (a/fwhm)+width/2, inv_image = inv_stim,
+                      exclude_negative_lobes = False, plot = False, nbr_bins = 24)
+            
+            pxl_values = np.nan_to_num(Zmap[indc[0], indc[1]])
+            
+            result = np.nanmax(pxl_values) - sigma
+            
+            return result, b, stim_map_fc, Zmap, frame_fin
+        
+        else:
+            stim_map_fc[i] /= stim_thresh[i][0]
+        
+            if conv:
+                stim_map_fc[i] = masked_gaussian_convolution(stim_map_fc[i], mask, fwhm)
         
         #if mask is not None:
         #    stim_map_fc[i] *= mask
@@ -524,48 +688,55 @@ def _stim_fc(
         #mean_target = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]]).mean()
         #stim_map_fc[i][indc[0], indc[1]] = 0
         
-        pxl_values = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]])
-        these_indices = np.where(pxl_values>0)
-        if len(these_indices[0]) <= 1:
-            result[i] = 0
-        else:
-            if conv:
-                this_v = np.nanmax(pxl_values[these_indices])
-            else:
-                this_v = np.mean(pxl_values[these_indices])
-                
-            result[i] = this_v - stim_thresh[i][3]
+            pxl_values = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]])
+            these_indices = np.where(pxl_values>0)
             
-        apertures = CircularAperture((sigposx, sigposy), fwhm_med / 2)
-        this_flux = aperture_photometry(frame_fin[i], apertures)
-        this_flux = np.array(this_flux["aperture_sum"])[0]
-        recovered_flux = this_flux - stim_thresh[i][4][this_a,b]
-        this_throughput = recovered_flux/flevel
         
-        if this_throughput < through_thresh:
-            result[i] = 0
+            stim_map_fc[i] -= stim_thresh[i][3]
+            pxl_values = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]])
+        
+        
+            if len(these_indices[0]) <= 1:
+                result[i] = 0
+            else:
+                if conv:
+                    this_v = np.nanmax(pxl_values[these_indices])
+                else:
+                    this_v = np.mean(pxl_values[these_indices])
+                
+                #result[i] = this_v - stim_thresh[i][3]
+                result[i] = this_v
             
-        if check_max:
-            max_map = np.nan_to_num(stim_map_fc[i]*annulus).max()
-            max_target = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]]).max()
-            if max_map > max_target:
+            apertures = CircularAperture((sigposx, sigposy), fwhm_med / 2)
+            this_flux = aperture_photometry(frame_fin[i], apertures)
+            this_flux = np.array(this_flux["aperture_sum"])[0]
+            recovered_flux = this_flux - stim_thresh[i][4][this_a,b]
+            this_throughput = recovered_flux/flevel
+        
+            if this_throughput < through_thresh:
                 result[i] = 0
             
-        if snr:
-            if len(these_indices[0]) <= 1:
-                stim_value[i] = 0
-            else:
-                stim_value[i] = this_v
-            throughput[i] = this_throughput
-            snrmaps[i] = snrmap(frame_fin[i], fwhm, approximated = True, plot = False, verbose = False)
-            snrpxlvalues = np.nan_to_num(snrmaps[i][indc1[0], indc1[1]])
-            these_indices = np.where(snrpxlvalues>0)[0]
-            if len(these_indices) > 0:
-                snr_value[i,0] = np.nanmax(snrpxlvalues[these_indices])
-                snr_value[i,1] = np.nanmean(snrpxlvalues[these_indices])
-            else:
-                snr_value[i,0] = np.nanmax(snrpxlvalues)
-                snr_value[i,1] = np.nanmean(snrpxlvalues)
+            if check_max:
+                max_map = np.nan_to_num(stim_map_fc[i]*annulus).max()
+                max_target = np.nan_to_num(stim_map_fc[i][indc[0], indc[1]]).max()
+                if max_map > max_target:
+                    result[i] = 0
+            
+            if snr:
+                if len(these_indices[0]) <= 1:
+                    stim_value[i] = 0
+                else:
+                    stim_value[i] = this_v
+                throughput[i] = this_throughput
+                snrmaps[i] = snrmap(frame_fin[i], fwhm, approximated = True, plot = False, verbose = False)
+                snrpxlvalues = np.nan_to_num(snrmaps[i][indc1[0], indc1[1]])
+                these_indices = np.where(snrpxlvalues>0)[0]
+                if len(these_indices) > 0:
+                    snr_value[i,0] = np.nanmax(snrpxlvalues[these_indices])
+                    snr_value[i,1] = np.nanmean(snrpxlvalues[these_indices])
+                else:
+                    snr_value[i,0] = np.nanmax(snrpxlvalues)
+                    snr_value[i,1] = np.nanmean(snrpxlvalues)
             
 
         #result[i] = max_target-max_map
@@ -1439,6 +1610,8 @@ def completeness_curve_stim(
             this_inverse = inverse_stim_map(residuals[i], angle_list, 
                             imlib=imlib, nproc = nproc)
             
+            this_inverseC = this_inverse.copy()
+            
             if conv:
                 this_inverse = masked_gaussian_convolution(this_inverse, mask, fwhm)
             
@@ -1448,15 +1621,17 @@ def completeness_curve_stim(
                 else:
                     this_inverse *= mask
                     
-                pxl_mask = np.where((mask == 1) & (this_inverse > 0))
+                pxl_mask = np.where((mask == 1) & (this_inverse is not None))
             else:
-                pxl_mask = np.where(this_inverse > 0)
+                pxl_mask = np.where(this_inverse is not None)
                 
                 
             if progressive_thr:
-                this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
+                this_max, this_mean, this_std = make_stim2D_threshold(this_inverse, fwhm, width, mask)
             else:
                 this_max = np.nanmax(this_inverse)
+                this_mean = np.nanmean(this_inverse)
+                this_std = np.nanstd(this_inverse)
                 
                 
             y, x = frames[i].shape
@@ -1481,11 +1656,13 @@ def completeness_curve_stim(
                                    np.std(this_inverse[pxl_mask]), 1, fluxes])
             
             if sigma is not None:
-                stim_threshold[i][3] = (stim_threshold[i][1]+sigma*stim_threshold[i][2])/stim_threshold[i][0]
+                stim_threshold[i][3] = (this_mean + sigma * this_std)/this_max
                 
             
     elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
         this_inverse = stim_map(residuals_)
+        
+        this_inverseC = this_inverse.copy()
         
         if conv:
             this_inverse = masked_gaussian_convolution(this_inverse, mask, fwhm)
@@ -1496,14 +1673,16 @@ def completeness_curve_stim(
             else:
                 this_inverse *= mask
                 
-            pxl_mask = np.where((mask == 1) & (this_inverse > 0))
+            pxl_mask = np.where((mask == 1) & (this_inverse is not None))
         else:
-            pxl_mask = np.where(this_inverse > 0)
+            pxl_mask = np.where(this_inverse is not None)
             
         if progressive_thr:
-            this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
+            this_max, this_mean, this_std = make_stim2D_threshold(this_inverse, fwhm, width, mask)
         else:
             this_max = np.nanmax(this_inverse)
+            this_mean = np.nanmean(this_inverse)
+            this_std = np.nanstd(this_inverse)
             
             
         y, x = frames.shape
@@ -1529,7 +1708,7 @@ def completeness_curve_stim(
                                np.std(this_inverse[pxl_mask]), 1, fluxes])
         
         if sigma is not None:
-            stim_threshold[0][3] = (stim_threshold[0][1]+sigma*stim_threshold[0][2])/stim_threshold[0][0]
+            stim_threshold[0][3] = (this_mean + sigma * this_std)/this_max
 
 
     completeness_curve = np.ones((len(an_dist), 3))
@@ -1596,7 +1775,8 @@ def completeness_curve_stim(
             for b in range(0,n_fc):
                 this_result = _stim_fc(a,an_dist,b,level, n_fc, cube, psf, angle_list, 
                         fwhm, algo, algo_dict, stim_threshold, through_thresh, 
-                        mask, conv, starphot, transmission, False, check_max)
+                        mask, conv, starphot, transmission, False, check_max, this_inverseC, 
+                        sigma,width)
                 
                 res[b] = this_result[0:2]
                 stim_maps[b] = this_result[2]
@@ -1731,8 +1911,9 @@ def completeness_curve_snr(
     pxscale=0.1,
     n_fc=20,
     completeness=0.95,
-    sigma=None,
-    snr_approximation=True,
+    sigma=5,
+    snr_approximation=False,
+    exclude_negative_lobes=True,
     max_iter=20,
     precision=0.1,
     through_thresh=0,
@@ -1968,7 +2149,6 @@ def completeness_curve_snr(
                     residuals = get_adi_res(residuals)
             else:
                 frames = output[0]
-                residuals = output[3]
                 
         elif algo.__name__ == 'pca_annular':
             output = algo(cube=cube,
@@ -1977,132 +2157,18 @@ def completeness_curve_snr(
                           full_output = True,
                           **algo_dict)
             
-            residuals = output[0]
             frames = output[2]
         elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
             output = algo(cube=cube, angle_list=-angle_list, 
                              **algo_dict)
             
             frames = output[2]
-            residuals_ = output[1]
         else:
             raise ValueError("algorithm not supported")
     else:
         raise ValueError("'cube' and 'angle_list' must be arguments of algo")
 
-    if 'pca' in algo.__name__:
-        ncomp = algo_dict['ncomp']
-        if np.isscalar(ncomp):
-            ncomp = np.array([ncomp])
-        else:
-            ncomp = np.array(ncomp)
     
-        nncomp = len(ncomp)
-        
-        stim_threshold = []
-        
-        if nncomp == 1:
-            residuals = residuals.reshape(1,residuals.shape[0], 
-                                        residuals.shape[1],residuals.shape[2])
-            frames = frames.reshape(1, frames.shape[0], frames.shape[1])
-        
-        for i,n in enumerate(ncomp):
-            this_inverse = inverse_stim_map(residuals[i], angle_list, 
-                            imlib=imlib, nproc = nproc)
-            
-            if conv:
-                this_inverse = masked_gaussian_convolution(this_inverse, mask, fwhm)
-            
-            if mask is not None:
-                if np.isscalar(mask):
-                    this_inverse = mask_circle(this_inverse, mask)
-                else:
-                    this_inverse *= mask
-                    
-                pxl_mask = np.where((mask == 1) & (this_inverse > 0))
-            else:
-                pxl_mask = np.where(this_inverse > 0)
-                
-                
-            if progressive_thr:
-                this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
-            else:
-                this_max = np.nanmax(this_inverse)
-                
-                
-            y, x = frames[i].shape
-            twopi = 2 * np.pi
-            yy = np.zeros((len(an_dist), n_fc))
-            xx = np.zeros((len(an_dist), n_fc))
-            fluxes = np.zeros((len(an_dist), n_fc))
-            for k,a in enumerate(an_dist):
-                for b in range(n_fc):
-                    sigposy = y / 2 + np.sin(b / n_fc * twopi) * a
-                    sigposx = x / 2 + np.cos(b / n_fc * twopi) * a
-                    
-                    yy[k,b] = sigposy
-                    xx[k,b] = sigposx
-                    
-                apertures = CircularAperture(np.array((xx[k], yy[k])).T, np.mean(fwhm) / 2)
-                these_fluxes = aperture_photometry(frames[i], apertures)
-                these_fluxes = np.array(these_fluxes["aperture_sum"])
-                fluxes[k] = these_fluxes
-            
-            stim_threshold.append([this_max, np.mean(this_inverse[pxl_mask]), 
-                                   np.std(this_inverse[pxl_mask]), 1, fluxes])
-            
-            if sigma is not None:
-                stim_threshold[i][3] = (stim_threshold[i][1]+sigma*stim_threshold[i][2])/stim_threshold[i][0]
-                
-            
-    elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
-        this_inverse = stim_map(residuals_)
-        
-        if conv:
-            this_inverse = masked_gaussian_convolution(this_inverse, mask, fwhm)
-        
-        if mask is not None:
-            if np.isscalar(mask):
-                this_inverse = mask_circle(this_inverse, mask)
-            else:
-                this_inverse *= mask
-                
-            pxl_mask = np.where((mask == 1) & (this_inverse > 0))
-        else:
-            pxl_mask = np.where(this_inverse > 0)
-            
-        if progressive_thr:
-            this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
-        else:
-            this_max = np.nanmax(this_inverse)
-            
-            
-        y, x = frames.shape
-        twopi = 2 * np.pi
-        yy = np.zeros((len(an_dist), n_fc))
-        xx = np.zeros((len(an_dist), n_fc))
-        fluxes = np.zeros((len(an_dist), n_fc))
-        for k,a in enumerate(an_dist):
-            for b in range(n_fc):
-                sigposy = y / 2 + np.sin(b / n_fc * twopi) * a
-                sigposx = x / 2 + np.cos(b / n_fc * twopi) * a
-                
-                yy[k,b] = sigposy
-                xx[k,b] = sigposx
-                
-            apertures = CircularAperture(np.array((xx[k], yy[k])).T, np.mean(fwhm) / 2)
-            these_fluxes = aperture_photometry(frames, apertures)
-            these_fluxes = np.array(these_fluxes["aperture_sum"])
-            fluxes[k] = these_fluxes
-        
-        stim_threshold = []
-        stim_threshold.append([this_max, np.mean(this_inverse[pxl_mask]), 
-                               np.std(this_inverse[pxl_mask]), 1, fluxes])
-        
-        if sigma is not None:
-            stim_threshold[0][3] = (stim_threshold[0][1]+sigma*stim_threshold[0][2])/stim_threshold[0][0]
-
-
     completeness_curve = np.ones((len(an_dist), 3))
 
     # We crop the PSF and check if PSF has been normalized (so that flux in
@@ -2157,7 +2223,7 @@ def completeness_curve_snr(
             pos_non_detect = []
             val_detect = []
             val_non_detect = []
-            stim_maps = np.zeros((n_fc, cube.shape[-1], cube.shape[-1]))
+            snrmaps = np.zeros((n_fc, cube.shape[-1], cube.shape[-1]))
             
             cond = level_bound[0] is None or level_bound[1] is None
             if verbose and not cond:
@@ -2165,12 +2231,12 @@ def completeness_curve_snr(
             
             res = np.zeros((n_fc,2))
             for b in range(0,n_fc):
-                this_result = _stim_fc(a,an_dist,b,level, n_fc, cube, psf, angle_list, 
-                        fwhm, algo, algo_dict, stim_threshold, through_thresh, 
-                        mask, conv, starphot, transmission)
+                this_result = _estimate_snr_fc(a, an_dist, b, level, n_fc, cube, psf, angle_list, 
+                        fwhm, algo, algo_dict, through_thresh, sigma,
+                        exclude_negative_lobes, starphot, snr_approximation, transmission, False)
                 
                 res[b] = this_result[0:2]
-                stim_maps[b] = this_result[2]
+                snrmaps[b] = this_result[2]
                 
                 if res[b][0] <= 0:
                     pos_non_detect.append(res[b][1])
@@ -2471,15 +2537,17 @@ def plot_fc_results(
                 else:
                     this_inverse *= mask
                     
-                pxl_mask = np.where((mask == 1) & (this_inverse > 0))
+                pxl_mask = np.where((mask == 1) & (this_inverse is not None))
             else:
-                pxl_mask = np.where(this_inverse > 0)
+                pxl_mask = np.where(this_inverse is not None)
                 
                 
             if progressive_thr:
-                this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
+                this_max, this_mean, this_std = make_stim2D_threshold(this_inverse, fwhm, width, mask)
             else:
                 this_max = np.nanmax(this_inverse)
+                this_mean = np.nanmean(this_inverse)
+                this_std = np.nanstd(this_inverse)
                 
                 
             y, x = frames[i].shape
@@ -2517,14 +2585,16 @@ def plot_fc_results(
             else:
                 this_inverse *= mask
                 
-            pxl_mask = np.where((mask == 1) & (this_inverse > 0))
+            pxl_mask = np.where((mask == 1) & (this_inverse is not None))
         else:
-            pxl_mask = np.where(this_inverse > 0)
+            pxl_mask = np.where(this_inverse is not None)
             
         if progressive_thr:
-            this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
+            this_max, this_mean, this_std = make_stim2D_threshold(this_inverse, fwhm, width, mask)
         else:
             this_max = np.nanmax(this_inverse)
+            this_mean = np.nanmean(this_inverse)
+            this_std = np.nanstd(this_inverse)
             
         this_stim = stim_map(residuals)/this_max
             
@@ -3348,15 +3418,17 @@ def completeness_theta_map(
                 else:
                     this_inverse *= mask
                     
-                pxl_mask = np.where((mask == 1) & (this_inverse > 0))
+                pxl_mask = np.where((mask == 1) & (this_inverse is not None))
             else:
-                pxl_mask = np.where(this_inverse > 0)
+                pxl_mask = np.where(this_inverse is not None)
                 
                 
             if progressive_thr:
-                this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
+                this_max, this_mean, this_std = make_stim2D_threshold(this_inverse, fwhm, width, mask)
             else:
                 this_max = np.nanmax(this_inverse)
+                this_mean = np.nanmean(this_inverse)
+                this_std = np.nanstd(this_inverse)
                 
                 
             y, x = frames[i].shape
@@ -3381,7 +3453,7 @@ def completeness_theta_map(
                                    np.std(this_inverse[pxl_mask]), 1, fluxes])
             
             if sigma is not None:
-                stim_threshold[i][3] = (stim_threshold[i][1]+sigma*stim_threshold[i][2])/stim_threshold[i][0]
+                stim_threshold[i][3] = (this_mean + sigma * this_std)/this_max
                 
             
     elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
@@ -3396,14 +3468,16 @@ def completeness_theta_map(
             else:
                 this_inverse *= mask
                 
-            pxl_mask = np.where((mask == 1) & (this_inverse > 0))
+            pxl_mask = np.where((mask == 1) & (this_inverse is not None))
         else:
-            pxl_mask = np.where(this_inverse > 0)
+            pxl_mask = np.where(this_inverse is not None)
             
         if progressive_thr:
-            this_max = make_stim2D_threshold(this_inverse, fwhm, width, mask)
+            this_max, this_mean, this_std = make_stim2D_threshold(this_inverse, fwhm, width, mask)
         else:
             this_max = np.nanmax(this_inverse)
+            this_mean = np.nanmean(this_inverse)
+            this_std = np.nanstd(this_inverse)
             
             
         y, x = frames.shape
@@ -3429,7 +3503,7 @@ def completeness_theta_map(
                                np.std(this_inverse[pxl_mask]), 1, fluxes])
         
         if sigma is not None:
-            stim_threshold[0][3] = (stim_threshold[0][1]+sigma*stim_threshold[0][2])/stim_threshold[0][0]
+            stim_threshold[0][3] = (this_mean + sigma * this_std)/this_max
 
 
     completeness_theta_map = np.ones((len(an_dist), n_fc, 3))

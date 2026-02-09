@@ -414,8 +414,11 @@ def snr(array, source_xy, fwhm, full_output=False, array2=None, use2alone=False,
     f_source = fluxes[0].copy()
     fluxes = fluxes[1:]
     n2 = fluxes.shape[0]
-    backgr_apertures_std = fluxes.std(ddof=1)
-    snr_vale = (f_source - fluxes.mean())/(backgr_apertures_std *
+    if len(fluxes) <= 1:
+        snr_vale = np.nan
+    else:
+        backgr_apertures_std = fluxes.std(ddof=1)
+        snr_vale = (f_source - fluxes.mean())/(backgr_apertures_std *
                                            np.sqrt(1+(1/n2)))
 
     if verbose:

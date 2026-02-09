@@ -189,6 +189,8 @@ def return_stim_max(stim, fwhm = 4, width = 1, mask = None):
     y,x = stim.shape
 
     values = np.zeros(int(x/2))
+    means = np.zeros(int(x/2))
+    stds = np.zeros(int(x/2))
     
     #To be compatible with with arrays of fwhm (for 4D datasets for example)
     if not np.isscalar(fwhm):
@@ -205,9 +207,11 @@ def return_stim_max(stim, fwhm = 4, width = 1, mask = None):
             this_mask *= mask
 
         values[r] = np.nanmax(stim*this_mask)
+        means[r] = np.nanmean(stim*this_mask)
+        stds[r] = np.nanstd(stim*this_mask)
 
     values[np.where(values <= 0)] = np.nanmax(values)
-    return values
+    return values, means, stds
 
 
 def make_stim2D_threshold(inv_stim, fwhm = 4, width = 1, mask = None):
@@ -223,11 +227,13 @@ def make_stim2D_threshold(inv_stim, fwhm = 4, width = 1, mask = None):
         into account for the maxima computation
     """
     
-    values = return_stim_max(inv_stim, mask = mask, fwhm = fwhm, width = width)
+    values, means, stds = return_stim_max(inv_stim, mask = mask, fwhm = fwhm, width = width)
     
     result = create_distance_interpolated_array(values, inv_stim.shape)
+    means = create_distance_interpolated_array(means, inv_stim.shape)
+    stds = create_distance_interpolated_array(stds, inv_stim.shape)
     
     #if mask is not None:
     #    result *= mask
     
-    return result
+    return result, means, stds
