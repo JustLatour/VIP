@@ -886,8 +886,9 @@ def multi_cube_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_templat
         else:
             this_mask_array, this_opp_mask = construct_rfrr_mask(annulus_mask, yy, xx, radius_mask * fwhm[c], nbr_pixels)
 
-        mask_array.append(this_mask_array)
-        opp_mask.append(this_opp_mask)
+        mask_array.append(np.array(this_mask_array))
+        opp_mask.append(np.array(this_opp_mask))
+        
         
     mask_array = torch.tensor(np.array(mask_array), dtype = torch.float32, device = device)
     opp_mask = torch.tensor(np.array(opp_mask), dtype = torch.float32, device = device)

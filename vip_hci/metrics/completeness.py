@@ -193,10 +193,11 @@ def masked_gaussian_convolution(image, mask, fwhm):
     sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
     kernel_size = 2 * int(3 * sigma) + 1
 
+
     kernel = gaussian_kernel(kernel_size, sigma)
     
     # Compute numerator: convolution of (image * mask) with kernel
-    numerator = signal.convolve2d(image * mask, kernel, mode='same', boundary='symm')
+    numerator = signal.convolve2d(np.array(image * mask), np.array(kernel), mode='same', boundary='symm')
     
     # Compute denominator: convolution of mask with kernel
     denominator = signal.convolve2d(mask.astype(float), kernel, mode='same', boundary='symm')
@@ -665,8 +666,8 @@ def _stim_fc(
         stim_map_fc[i] = stim_map(residuals_[i])
         
         if sigma is not None:
-            Zmap,_,_ = plot_Zmap(stim_map_fc[i], fwhm, mode = 'stim', mask = mask,
-                       minr = (a/fwhm)-width/2, maxr = (a/fwhm)+width/2, inv_image = inv_stim,
+            Zmap,_,_ = plot_Zmap(stim_map_fc[i], fwhm_med, mode = 'stim', mask = mask,
+                       minr = (a/fwhm_med)-width/2, maxr = (a/fwhm_med)+width/2, inv_image = inv_stim,
                       exclude_negative_lobes = False, plot = False, nbr_bins = 24)
             
             pxl_values = np.nan_to_num(Zmap[indc[0], indc[1]])
@@ -1572,8 +1573,10 @@ def completeness_curve_stim(
             if isinstance(cube, list) or (isinstance(cube, np.ndarray) and len(cube.shape) == 4):
                 if isinstance(cube, list):
                     nch = len(cube)
+                    size = cube[0].shape[-1]
                 else:
                     nch = cube.shape[0]
+                    size = cube.shape[-1]
                 if isinstance(angle_list, list):
                     opp_angles = [-L for L in angle_list]
                 else:
@@ -1719,12 +1722,12 @@ def completeness_curve_stim(
     if new_psf_size % 2 == 0:
         new_psf_size += 1
     # Normalize psf
-    if len(cube.shape) == 3:
+    if isinstance(cube, np.ndarray) and len(cube.shape) == 3:
         psf = normalize_psf(
             psf, fwhm=fwhm, verbose=False, size=min(new_psf_size, psf.shape[1])
             )
     else:
-        nch = cube.shape[0]
+        nch = len(cube)
         V = [normalize_psf(psf[i], fwhm[i], size=20, imlib='ndimage-fourier', force_odd = True, full_output = True) for i in range(0, nch, 1)]
         psf, _, _ = [], [], []
         for i in range(0, nch, 1):
@@ -1765,7 +1768,7 @@ def completeness_curve_stim(
             pos_non_detect = []
             val_detect = []
             val_non_detect = []
-            stim_maps = np.zeros((n_fc, cube.shape[-1], cube.shape[-1]))
+            stim_maps = np.zeros((n_fc, size, size))
             
             cond = level_bound[0] is None or level_bound[1] is None
             if verbose and not cond:
