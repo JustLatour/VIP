@@ -1583,6 +1583,7 @@ def completeness_curve_stim(
                     opp_angles = [-angle_list for i in range(nch)]
             else:
                 opp_angles = -angle_list
+                size = cube.shape[-1]
             output = algo(cube=cube, angle_list=opp_angles, 
                              **algo_dict)
             
