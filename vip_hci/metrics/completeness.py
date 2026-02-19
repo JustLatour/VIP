@@ -476,6 +476,7 @@ def _stim_fc(
     check_max=False,
     inv_stim=None,
     sigma=5,
+    Zthresh = None,
     width=1.5
 ):
     
@@ -665,7 +666,7 @@ def _stim_fc(
         
         stim_map_fc[i] = stim_map(residuals_[i])
         
-        if sigma is not None:
+        if Zthresh is not None:
             Zmap,_,_ = plot_Zmap(stim_map_fc[i], fwhm_med, mode = 'stim', mask = mask,
                        minr = (a/fwhm_med)-width/2, maxr = (a/fwhm_med)+width/2, inv_image = inv_stim,
                       exclude_negative_lobes = False, plot = False, nbr_bins = 24)
@@ -1317,6 +1318,7 @@ def completeness_curve_stim(
     completeness=0.95,
     conv=False,
     sigma=None,
+    Zthresh=None,
     snr_approximation=True,
     max_iter=20,
     precision=0.1,
@@ -1780,7 +1782,7 @@ def completeness_curve_stim(
                 this_result = _stim_fc(a,an_dist,b,level, n_fc, cube, psf, angle_list, 
                         fwhm, algo, algo_dict, stim_threshold, through_thresh, 
                         mask, conv, starphot, transmission, False, check_max, this_inverseC, 
-                        sigma,width)
+                        sigma,Zthresh,width)
                 
                 res[b] = this_result[0:2]
                 stim_maps[b] = this_result[2]
