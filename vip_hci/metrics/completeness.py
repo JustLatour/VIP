@@ -673,7 +673,7 @@ def _stim_fc(
             
             pxl_values = np.nan_to_num(Zmap[indc[0], indc[1]])
             
-            result = np.nanmax(pxl_values) - sigma
+            result = np.nanmax(pxl_values) - Zthresh
             
             return result, b, stim_map_fc, Zmap, frame_fin
         
