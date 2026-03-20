@@ -926,6 +926,8 @@ def astro_photo_metry_uncertainty(cube, angle_list, planets_rad, flux, psfn,
                                  mu_sigma=None, weights=weights,
                                  force_rPA=force_rPA, ndet=ndet,
                                  options=simplex_options, method = method, verbose=False)
+        
+        print(res)
         if force_rPA:
             rads[b], thetas[b] = (init[0], init[1])
             fluxes[b] = res.x[:]

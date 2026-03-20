@@ -205,10 +205,12 @@ def return_stim_max(stim, fwhm = 4, width = 1, mask = None):
         this_mask = mask_circle(this_mask, this_max, mode = 'out')
         if mask is not None:
             this_mask *= mask
+            
+        yy,xx = np.where(this_mask == 1)
 
         values[r] = np.nanmax(stim*this_mask)
-        means[r] = np.nanmean(stim*this_mask)
-        stds[r] = np.nanstd(stim*this_mask)
+        means[r] = np.nanmean(stim[yy,xx])
+        stds[r] = np.nanstd(stim[yy,xx])
 
     values[np.where(values <= 0)] = np.nanmax(values)
     return values, means, stds
