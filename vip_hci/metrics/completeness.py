@@ -1562,6 +1562,7 @@ def completeness_curve_stim(
                 frames = output[0]
                 residuals = output[3]
                 
+            size = cube.shape[-1]
         elif algo.__name__ == 'pca_annular':
             output = algo(cube=cube,
                           angle_list=angle_list,
@@ -1571,6 +1572,7 @@ def completeness_curve_stim(
             
             residuals = output[0]
             frames = output[2]
+            size = cube.shape[-1]
         elif '4S' in algo.__name__ or 'FourS' in algo.__name__:
             if isinstance(cube, list) or (isinstance(cube, np.ndarray) and len(cube.shape) == 4):
                 if isinstance(cube, list):
