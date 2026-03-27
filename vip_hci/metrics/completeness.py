@@ -346,8 +346,8 @@ def _estimate_snr_fc(
     # class_name = algo_params[param_name].annotation
 
     # argl = [attr for attr in vars(class_name)]
-    if "verbose" in argl:
-        algo_dict["verbose"] = False
+    #if "verbose" in argl:
+    #    algo_dict["verbose"] = False
     if "fwhm" in argl:
         algo_dict["fwhm"] = fwhm_med
     if "annular" in algo_name:
@@ -562,8 +562,8 @@ def _stim_fc(
     # class_name = algo_params[param_name].annotation
 
     # argl = [attr for attr in vars(class_name)]
-    if "verbose" in argl:
-        algo_dict["verbose"] = False
+    #if "verbose" in argl:
+    #    algo_dict["verbose"] = False
     if "fwhm" in argl:
         algo_dict["fwhm"] = fwhm_med
     if "annular" in algo_name:
