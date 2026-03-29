@@ -1525,7 +1525,6 @@ def completeness_curve_stim(
         if algo.__name__ == 'pca':
             output = algo(cube=cube,
                           angle_list=angle_list,
-                          verbose=False,
                           full_output = True,
                           **algo_dict)
             
