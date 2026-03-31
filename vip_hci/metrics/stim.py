@@ -15,11 +15,77 @@ __author__ = 'Benoit Pairet'
 __all__ = ['stim_map',
            'inverse_stim_map',
            'normalized_stim_map',
-           'make_stim2D_threshold']
+           'make_stim2D_threshold',
+           'create_distance_interpolated_array',
+           'return_stim_max',
+           'normalized_stim_pro']
 
 import numpy as np
 from ..preproc import cube_derotate
 from ..var import get_circle, mask_circle
+from scipy import signal
+
+
+def gaussian_kernel(size: int, sigma: float):
+    """Generates a 2D Gaussian kernel."""
+    x_coord = np.arange(size) - size // 2
+    x_grid, y_grid = np.meshgrid(x_coord, x_coord, indexing='ij')
+    
+    gaussian_kernel = np.exp(-(x_grid**2 + y_grid**2) / (2 * sigma**2))
+    #gaussian_kernel /= np.sum(gaussian_kernel)
+    
+    return gaussian_kernel
+
+
+
+def masked_gaussian_convolution(image, mask, fwhm):
+    """
+    Applies a Gaussian convolution to the image only within the masked region.
+    
+    Parameters:
+    image : 2D numpy array
+        Input image to be convolved.
+    mask : 2D boolean numpy array
+        Mask indicating the region to convolve (True where convolution is applied).
+    sigma : float
+        Standard deviation of the Gaussian kernel.
+        
+    Returns:
+    2D numpy array
+        Convolved image with the same shape as the input, where only the masked region is convolved.
+    """
+    if mask is None:
+        mask = np.ones_like(image)
+    mask = np.array(mask, dtype = bool)
+    
+    # Create Gaussian kernel
+    sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
+    kernel_size = 2 * int(3 * sigma) + 1
+
+
+    kernel = gaussian_kernel(kernel_size, sigma)
+    #plot_frames(kernel)
+    
+    # Compute numerator: convolution of (image * mask) with kernel
+    numerator = signal.convolve2d(image * mask, kernel, mode='same', boundary='symm')
+    
+    # Compute denominator: convolution of mask with kernel
+    denominator = signal.convolve2d(mask.astype(float), kernel, mode='same', boundary='symm')
+    
+    # Avoid division by zero by setting a small epsilon where denominator is zero
+    eps = 1e-6
+    denominator[denominator == 0] = eps
+    
+    # Compute the normalized convolution result for valid regions
+    convolved_region = numerator / denominator
+    
+    # Apply the mask to retain only the convolved region
+    result = image.copy()
+    result[mask] = convolved_region[mask]
+    result *= mask
+    
+    return result
+
 
 
 def stim_map(cube_der):
@@ -239,3 +305,50 @@ def make_stim2D_threshold(inv_stim, fwhm = 4, width = 1, mask = None):
     #    result *= mask
     
     return result, means, stds
+
+
+def normalized_stim_pro(res_, res, derot = None, conv = True, fwhm = 4, width = 1.5, mask= None):
+    
+    """
+    res_ is the derotated residuals.
+    res is the inversely derotated residuals
+    
+    returns the progessively thresholded stim map, in units of standard deviation
+    above the mean of the inverse stim map
+    
+    if conv is True, both the direct and the inverse stim map are convolved before
+    the thresholding
+    
+    if derot is None, no additional derotation is done
+    fs it is not None, it should be the derotation angle of the cube, whose inverse
+    will be used to derotate res and NOT res_ which should already be derotated
+
+    """
+
+    
+    
+    if derot is not None:
+        res = cube_derotate(res, -derot, imlib = 'opencv', interpolation = 'lanczos4')
+    
+    if mask is None:
+        mask = np.ones_like(res[0])
+        
+        
+    stim = stim_map(res_)
+    inv = stim_map(res)
+        
+    if conv:
+        inv = masked_gaussian_convolution(inv, mask, fwhm)
+        #print('Max with convolution: {}'.format(np.nanmax(inv)))
+        stim = masked_gaussian_convolution(stim, mask, fwhm)
+        
+    
+    this_max, this_mean, this_std = make_stim2D_threshold(inv, fwhm, width, mask)
+    
+    stim = (stim - this_mean) / this_std
+    
+    return stim
+        
+        
+        
+        

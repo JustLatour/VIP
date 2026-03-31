@@ -486,7 +486,7 @@ def get_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pixels, s
 
 
 def get_multi_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pixels, shape, yy, xx, psf_model, device,
-                          std_norm = False, std = 1, get_channels = False):
+                          std_norm = False, std = 1, get_channels = False, sigmas = None):
     
     nch, n, y, x = shape
     
@@ -524,11 +524,23 @@ def get_multi_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pix
             output_data[c] += std[c]
     
         this_cube_data = torch.zeros((n[c],y,x), device = device)
+        
         this_cube_data[:,yy,xx] = output_data[c]
+        
+        if sigmas is not None:
+            kernel = gaussian_kernel(15, sigmas[c], device)
+            kernel = kernel.unsqueeze(0).unsqueeze(0)  # Shape: [1, 1, H, W]
+            kernel = kernel.to(this_cube_data.device).to(this_cube_data.dtype)
+            if sigmas[c] > 1e-6:
+                out = F.conv2d(this_cube_data.unsqueeze(1),kernel,padding=7).squeeze(1)
+            else:
+                out = out = this_cube_data
+        else:
+            out = this_cube_data
 
-        cube_data[total_im[c]:total_im[c+1],yy,xx] = output_data[c]
+        cube_data[total_im[c]:total_im[c+1],:,:] = out
 
-        cube_data_[total_im[c]:total_im[c+1]] = torch_cube_derotate_batch(this_cube_data, all_grids[c]).squeeze(1)
+        cube_data_[total_im[c]:total_im[c+1]] = torch_cube_derotate_batch(out, all_grids[c]).squeeze(1)
         
         if get_channels:
             channels.append(torch.median(cube_data_[total_im[c]:total_im[c+1]], axis = 0)[0].detach().cpu().numpy())
@@ -760,7 +772,7 @@ def multi_cube_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_templat
             L2_exempt = False, psf_mask = True, std_norm = True,
             nproc = None, imlib = "vip-fft", interpolation = "lanczos4", 
             convolve = False, precision = 0.01, full_output = True,
-            var = False, device = None):
+            var = False, device = None, conv = False):
     
     
     if device is None:
@@ -917,6 +929,16 @@ def multi_cube_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_templat
         
     #if convolve:
     #    mask_norm = F.conv2d(torch.tensor(annulus_mask).unsqueeze(0).unsqueeze(0), psf_model).view(y,x)
+    
+    
+    if conv:
+        fwhm_target  = torch.tensor([np.max(fwhm)] * nch)   # shape (S,)
+
+        fwhm_kernel = torch.sqrt(fwhm_target**2 - fwhm**2)
+        sigmas = fwhm_kernel / 2.355
+    else:
+        sigmas = None
+    
 
     prev = 0
     # Optimization loop
@@ -929,7 +951,8 @@ def multi_cube_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_templat
             this_matrix_m = matrix * mask_array
             
             this_matrix, cube_data, cube_data_ = get_multi_residual_sequence(input_data, 
-                    this_matrix_m, all_grids, convolve, nbr_pixels, (nch, n, y, x), yy, xx, psf_model, device)
+                    this_matrix_m, all_grids, convolve, nbr_pixels, (nch, n, y, x), yy, xx, psf_model, 
+                    device, sigmas = sigmas)
                 
             inter_images.append(np.median(cube_data_.detach().cpu().numpy(), axis = 0))
         
@@ -941,6 +964,7 @@ def multi_cube_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_templat
                 L2 = L2_penalty*torch.sum((matrix*opp_mask)**2)
             else:
                 L2 = L2_penalty*torch.sum(matrix**2)
+                
                 
             if var:
                 objective = torch.sum(torch.var(output_data_, axis=0))*total_im[-1] + L2
