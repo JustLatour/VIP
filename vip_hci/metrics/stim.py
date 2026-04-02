@@ -307,7 +307,8 @@ def make_stim2D_threshold(inv_stim, fwhm = 4, width = 1, mask = None):
     return result, means, stds
 
 
-def normalized_stim_pro(res_, res, derot = None, conv = True, fwhm = 4, width = 1.5, mask= None):
+def normalized_stim_pro(res_, res, derot = None, conv = True, fwhm = 4, 
+                        width = 1.5, mask= None, full_output = False):
     
     """
     res_ is the derotated residuals.
@@ -324,8 +325,6 @@ def normalized_stim_pro(res_, res, derot = None, conv = True, fwhm = 4, width = 
     will be used to derotate res and NOT res_ which should already be derotated
 
     """
-
-    
     
     if derot is not None:
         res = cube_derotate(res, -derot, imlib = 'opencv', interpolation = 'lanczos4')
@@ -338,16 +337,22 @@ def normalized_stim_pro(res_, res, derot = None, conv = True, fwhm = 4, width = 
     inv = stim_map(res)
         
     if conv:
-        inv = masked_gaussian_convolution(inv, mask, fwhm)
+        invC = masked_gaussian_convolution(inv, mask, fwhm)
         #print('Max with convolution: {}'.format(np.nanmax(inv)))
-        stim = masked_gaussian_convolution(stim, mask, fwhm)
+        stimC = masked_gaussian_convolution(stim, mask, fwhm)
+    else:
+        invC = inv
+        stimC = stim
         
     
-    this_max, this_mean, this_std = make_stim2D_threshold(inv, fwhm, width, mask)
+    this_max, this_mean, this_std = make_stim2D_threshold(invC, fwhm, width, mask)
     
-    stim = (stim - this_mean) / this_std
+    stim_norm = (stimC - this_mean) / this_std
     
-    return stim
+    if full_output:
+        return stim_norm, stim, inv, stimC, invC
+    else:
+        return stim_norm
         
         
         

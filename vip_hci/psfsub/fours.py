@@ -521,7 +521,7 @@ def get_multi_residual_sequence(input_data, matrix, all_grids, convolve, nbr_pix
         output_data.append(input_data[c] - torch.matmul(input_data[c], this_matrix[c]))
         
         if std_norm:
-            output_data[c] += std[c]
+            output_data[c] *= std[c]
     
         this_cube_data = torch.zeros((n[c],y,x), device = device)
         
