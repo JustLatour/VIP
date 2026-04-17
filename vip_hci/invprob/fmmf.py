@@ -345,9 +345,9 @@ def _snr_contrast_esti(
     indices = get_annulus_segments(mcube[0], ann_center, 1, 1)
     indicesy = indices[0][0]
     indicesx = indices[0][1]
-
-    flux_esti = np.zeros_like(indicesy)
-    prob_esti = np.zeros_like(indicesy)
+    
+    flux_esti = np.zeros(indicesy.shape)
+    prob_esti = np.zeros(indicesy.shape)
 
     var_f = _var_esti(mcube, angle_list, var, crop, ann_center)
 
