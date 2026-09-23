@@ -32,7 +32,8 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
                           collapse='median', algo=pca_annulus, delta_rot=1,
                           algo_options={}, f_range=None, transmission=None,
                           radial_gradient=False,
-                          mu_sigma=(0, 1), weights=None, ndet=None, plot=False,
+                          mu_sigma=(0, 1), weights=None, ndet=None, coord = None, 
+                          dist_factor=100, plot=False,
                           verbose=True, save=False, debug=False,
                           full_output=False, counter_limit = 4):
     """Determine a first guess for the flux of a companion at a given position\
@@ -212,7 +213,7 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
                                    collapse, algo, delta_rot, imlib,
                                    interpolation, algo_options, transmission, 
                                    radial_gradient,mu_sigma, weights, False, 
-                                   ndet, debug))
+                                   ndet, coord, debug))
             if chi2r[j] > chi2r[j-1]:
                 counter += 1
             if counter == counter_limit:
@@ -340,7 +341,8 @@ def firstguess_simplex(p, cube, angs, psfn, ncomp, fwhm, annulus_width,
                        algo=pca_annulus, delta_rot=1, algo_options={},
                        p_ini=None, transmission=None, 
                        radial_gradient = False, mu_sigma=(0, 1),
-                       weights=None, force_rPA=False, ndet=None, options=None,
+                       weights=None, force_rPA=False, ndet=None, coord = None, 
+                       dist_factor=100, options=None,
                        verbose=False, method = 'Nelder-Mead', **kwargs):
     """Determine the position of a companion using the negative fake companion\
     technique and a standard minimization algorithm (Default=Nelder-Mead).
@@ -487,6 +489,14 @@ def firstguess_simplex(p, cube, angs, psfn, ncomp, fwhm, annulus_width,
         p_ini = (p[0], p[1])
     else:
         p_t = p
+        
+    bounds = [
+            (0, cube.shape[-1] / 2 -1),
+            (0, 360),
+            (0, np.max(cube))
+            ]    
+
+        
     solu = minimize(chisquare, p_t, args=(cube, angs, psfn, fwhm, annulus_width,
                                           aperture_radius, p_ini, ncomp,
                                           cube_ref, svd_mode, scaling, fmerit,
@@ -494,8 +504,8 @@ def firstguess_simplex(p, cube, angs, psfn, ncomp, fwhm, annulus_width,
                                           interpolation, algo_options,
                                           transmission, radial_gradient, 
                                           mu_sigma, weights,
-                                          force_rPA, ndet),
-                    method=method, options=options, **kwargs)
+                                          force_rPA, ndet, coord, dist_factor),
+                    method=method, options=options, bounds=bounds, **kwargs)
 
     if verbose:
         print(solu)
@@ -508,7 +518,7 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                interpolation='biquintic', collapse='median', algo=pca_annulus,
                delta_rot=1, f_range=None, transmission=None, 
                radial_gradient = False, mu_sigma=True,
-               wedge=None, weights=None, force_rPA=False, ndet=None,
+               wedge=None, weights=None, force_rPA=False, ndet=None, coord=None, dist_factor=100,
                algo_options={}, simplex=True, simplex_options=None, plot=False,
                verbose=True, save=False, method = 'Nelder-Mead', counter_limit=4, maxiter = 100):
     """Determine a first guess for the position and the flux of a planet using\
@@ -744,7 +754,8 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                                          transmission=transmission,
                                          radial_gradient=radial_gradient,
                                          mu_sigma=mu_sigma, weights=weights,
-                                         ndet=ndet, plot=plot, verbose=verbose,
+                                         ndet=ndet, coord=coord, 
+                                         dist_factor=dist_factor, plot=plot, verbose=verbose,
                                          save=save, counter_limit=counter_limit)
 
         r_pre = res_init[0]
@@ -783,7 +794,8 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                                      transmission=transmission,
                                      radial_gradient=radial_gradient,
                                      mu_sigma=mu_sigma, weights=weights,
-                                     force_rPA=force_rPA, ndet=ndet,
+                                     force_rPA=force_rPA, ndet=ndet, coord=coord,
+                                     dist_factor=dist_factor,
                                      options=simplex_options, method = method, verbose=False)
             if force_rPA:
                 r_0[i_planet], theta_0[i_planet] = (r_pre, theta_pre)
@@ -849,7 +861,8 @@ def astro_photo_metry_uncertainty(cube, angle_list, planets_rad, flux, psfn,
                svd_mode='lapack', scaling=None, fmerit='sum', imlib='opencv',
                interpolation='lanczos4', collapse='median', algo=pca_annulus,
                delta_rot=1, f_range=None, transmission=None, maxiter = 100,
-               wedge=None, weights=None, ndet=None,force_rPA=False,
+               wedge=None, weights=None, ndet=None, coord=None, 
+               dist_factor=100, force_rPA=False,
                algo_options={}, simplex=True, simplex_options=None, plot=False,
                verbose=True, save=False, counter_limit=4, method = 'Nelder-Mead'):
     
@@ -905,7 +918,8 @@ def astro_photo_metry_uncertainty(cube, angle_list, planets_rad, flux, psfn,
                                          algo_options=algo_options,
                                          transmission=transmission,
                                          mu_sigma=None, weights=weights,
-                                         ndet=ndet, plot=plot, verbose=verbose,
+                                         ndet=ndet, coord=coord, 
+                                         dist_factor=dist_factor, plot=plot, verbose=verbose,
                                          save=save, counter_limit=counter_limit)
     
         #r_pre = res_init[0]
@@ -924,10 +938,11 @@ def astro_photo_metry_uncertainty(cube, angle_list, planets_rad, flux, psfn,
                                  algo_options=algo_options,
                                  transmission=transmission,
                                  mu_sigma=None, weights=weights,
-                                 force_rPA=force_rPA, ndet=ndet,
+                                 force_rPA=force_rPA, ndet=ndet, coord=coord,
+                                 dist_factor=dist_factor,
                                  options=simplex_options, method = method, verbose=False)
         
-        print(res)
+       # print(res)
         if force_rPA:
             rads[b], thetas[b] = (init[0], init[1])
             fluxes[b] = res.x[:]

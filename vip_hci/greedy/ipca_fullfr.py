@@ -34,6 +34,8 @@ from ..preproc import cube_derotate, cube_collapse, cube_detect_badfr_correlatio
 from ..metrics import stim_map, inverse_stim_map, make_stim2D_threshold
 from ..var import prepare_matrix, mask_circle, frame_filter_lowpass
 
+from hciplot import plot_frames
+
 
 @dataclass
 class IPCA_Params(PCA_Params):
@@ -58,6 +60,7 @@ class IPCA_Params(PCA_Params):
     r_out: float = None
     r_max: float = None
     smooth_ker: Union[float, List] = None
+    smooth_comp: bool = False
     rtol: float = 1e-2
     atol: float = 1e-2
     continue_without_smooth_after_conv: bool = False
@@ -306,7 +309,7 @@ def ipca(*all_args: List, **all_kwargs: dict):
             inv_stim = mask_circle(inv_stim, mask)
             
         if thr_pro:
-            max_inv = make_stim2D_threshold(inv_stim, fwhm=fwhm, width=width)
+            max_inv = make_stim2D_threshold(inv_stim, fwhm=fwhm, width=width)[0]
         else:
             max_inv = np.amax(inv_stim)
             if max_inv == 0:
@@ -380,6 +383,7 @@ def ipca(*all_args: List, **all_kwargs: dict):
             indices = np.arange(0 ,algo_params.cube.shape[0])
 
     # 1. Prepare/format additional parameters depending on chosen options
+    smooth_comp = algo_params.smooth_comp
     mask_center_px = algo_params.mask_center_px  # None? what's better in pca?
     mask_rdi_tmp = None
     if algo_params.strategy == 'ADI' and algo_params.cube_ref is None:
@@ -564,12 +568,20 @@ def ipca(*all_args: List, **all_kwargs: dict):
             res = pca(**pca_params, **rot_options)
 
             frame = res[0]
+            'frame, pcs, recon, res, res_'
             residuals_cube = res[-2]
             it_cube[it] = frame.copy()
 
             # DON'T otherwise frame is smoothed twice!
             # smoothing and manual derotation if requested
             if smooth_ker[it] is not None:
+                if smooth_comp:
+                    residuals_cube_ = cube_derotate(residuals_cube,
+                                                    algo_params.angle_list,
+                                                    imlib=algo_params.imlib,
+                                                    nproc=algo_params.nproc)
+                    frame_nosmooth = cube_collapse(residuals_cube_, algo_params.collapse)
+                
                 residuals_cube = _blurring_3d(residuals_cube, None,
                                               fwhm_sz=smooth_ker[it])
                 residuals_cube_ = cube_derotate(residuals_cube,
@@ -577,9 +589,11 @@ def ipca(*all_args: List, **all_kwargs: dict):
                                                 imlib=algo_params.imlib,
                                                 nproc=algo_params.nproc)
                 frame = cube_collapse(residuals_cube_, algo_params.collapse)
+                
 
             # Run PCA on disk-empty cube
             # Update PCA PARAMS
+            #plot_frames((cube_tmp[0], sig_cube[0], cube_tmp[0]-sig_cube[0]))
             pca_params['cube'] = cube_tmp-sig_cube
             pca_params['cube_ref'] = cube_ref_tmp
             pca_params['cube_sig'] = None
@@ -589,6 +603,11 @@ def ipca(*all_args: List, **all_kwargs: dict):
 
             residuals_cube_nd = res_nd[-2]
             frame_nd = res_nd[0]
+
+            #plot_frames((res[1][0][-1], res_nd[1][0][-1]))
+            #plot_frames((res[2][0], res_nd[2][0]))
+            #plot_frames((res[3][0], res_nd[3][0]))
+            #plot_frames((res[4][0], res_nd[4][0]))
 
             if 'STIM' in algo_params.thr_mode:
                 sig_mask, nstim = _find_significant_signals(residuals_cube_nd,
@@ -602,8 +621,20 @@ def ipca(*all_args: List, **all_kwargs: dict):
                                                             width=algo_params.width,
                                                             **rot_options)
             else:
-                sig_mask = np.ones_like(frame)
-                sig_mask[np.where(frame < algo_params.thr)] = 0
+                sig_mask = np.zeros_like(frame)
+                if smooth_comp:
+                    #plot_frames((frame, frame_nosmooth, frame_nosmooth-frame))
+                    sig_mask[np.where((frame > algo_params.thr) & (frame_nosmooth > algo_params.thr))] = 1
+                    
+                    sig_mask1 = np.zeros_like(frame)
+                    sig_mask2 = np.zeros_like(frame)
+                    sig_mask1[np.where(frame > algo_params.thr)] = 1
+                    sig_mask2[np.where(frame_nosmooth > algo_params.thr)] = 1
+                    
+                    #plot_frames((sig_mask1, sig_mask2, sig_mask, sig_mask1-sig_mask2))
+                else:
+                    sig_mask[np.where(frame > algo_params.thr)] = 1
+                
                 nstim = sig_mask.copy()
                 
             if algo_params.mask_ipca is not None:

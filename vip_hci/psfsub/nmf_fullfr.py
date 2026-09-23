@@ -27,6 +27,14 @@ from ..preproc import cube_derotate, cube_collapse
 from ..preproc.derotation import _compute_pa_thresh, _find_indices_adi
 from ..var import (prepare_matrix, reshape_matrix, frame_center, dist,
                    matrix_scaling, mask_circle)
+from ..config.paramenum import (
+    SvdMode,
+    Adimsdi,
+    Interpolation,
+    Imlib,
+    Collapse,
+    ALGO_KEY,
+)
 
 
 @dataclass
@@ -48,12 +56,17 @@ class NMF_Params:
     source_xy: Tuple[int] = None
     delta_rot: float = 1
     fwhm: float = 4
+    imlib: Enum = Imlib.VIPFFT
+    interpolation: Enum = Interpolation.LANCZOS4
     init_svd: Enum = Initsvd.NNDSVD
     collapse: Enum = Collapse.MEDIAN
     full_output: bool = False
     verbose: bool = True
     cube_sig: np.ndarray = None
     handle_neg: Enum = HandleNeg.MASK
+    roll: bool = False
+    mask_rdi: np.ndarray = None
+    nproc: int = None
     nmf_args: dict = field(default_factory=lambda: {})
 
 
@@ -119,7 +132,7 @@ def nmf(*all_args: List, **all_kwargs: dict):
         recommended when sparsity is not desired
         'random': random initial non-negative matrix
     collapse : Enum, see `vip_hci.config.paramenum.Collapse`
-        Sets the way of collapsing the frames for producing a final image.
+        Sets the way of collapsing the frFames for producing a final image.
     full_output: boolean, optional
         Whether to return the final median combined image only or with other
         intermediate arrays.
@@ -231,7 +244,9 @@ def nmf(*all_args: List, **all_kwargs: dict):
     else:
         residuals_cube = np.zeros_like(array)
 
-    if algo_params.source_xy is None:
+    roll = algo_params.roll
+    #print(roll)
+    if algo_params.source_xy is None and roll == False:
         add_params = {
             "matrix": matrix,
             "matrix_ref": matrix_ref,
@@ -264,6 +279,51 @@ def nmf(*all_args: List, **all_kwargs: dict):
             if algo_params.full_output:
                 recon_cube = reshape_matrix(reconstructed, y, x)
                 H = H.reshape(algo_params.ncomp, y, x)
+    elif roll == True:
+        pa_values = np.array(list(set(algo_params.angle_list)))
+        nbr_rolls = len(pa_values)
+        indices = []
+        for r in range(nbr_rolls):
+            indices.append(np.where(algo_params.angle_list == pa_values[r])[0])
+        
+        residuals_cube = np.zeros_like(algo_params.cube)
+        if algo_params.full_output:
+            residuals = np.zeros_like(algo_params.cube)
+            H = []
+        for r in range(nbr_rolls):
+            add_params = {
+                "matrix": matrix,
+                "matrix_ref": matrix_ref,
+                "matrix_sig": matrix_sig,
+                "indices_roll":indices[r]
+            }
+            func_params = setup_parameters(
+                params_obj=algo_params, fkt=_project_subtract, **add_params
+            )
+            residuals = _project_subtract(**func_params, **algo_params.nmf_args)
+            
+            if algo_params.full_output:
+                reconstructed = residuals[1]
+                H2 = residuals[2]
+                residuals = residuals[0]
+            recon_cube = residuals_cube.copy()
+            
+            thisn = len(indices[r])
+            if algo_params.handle_neg == "mask":
+                for fr in range(thisn):
+                    residuals_cube[r * len(indices[r]) + fr][yy, xx] = residuals[fr]
+                if algo_params.full_output:
+                    for fr in range(thisn):
+                        recon_cube[r * len(indices[r]) + fr][yy, xx] = reconstructed[fr]
+                    for pp in range(algo_params.ncomp):
+                        H_tmp[pp][yy, xx] = H2[pp]
+                    H.append(H_tmp)
+            else:
+                for fr in range(thisn):
+                    residuals_cube[r * len(indices[r]) + fr] = residuals[fr].reshape((y, x))
+                if algo_params.full_output:
+                    recon_cube = reshape_matrix(reconstructed, y, x)
+                    H = H.reshape(algo_params.ncomp, y, x)
     else:
         if algo_params.delta_rot is None or algo_params.fwhm is None:
             msg = "Delta_rot or fwhm parameters missing. Needed for the"
@@ -356,6 +416,7 @@ def _project_subtract(
     max_iter=100,
     random_state=None,
     init_svd="nndsvda",
+    indices_roll=None,
     **kwargs
 ):
     """
@@ -405,6 +466,13 @@ def _project_subtract(
         matrix_emp = matrix.copy()
     else:
         matrix_emp = matrix - matrix_sig
+        
+    
+    if indices_roll is not None:
+        matrix_ref = matrix_emp[~indices_roll].copy()
+        #matrix_ref = 1 #just so that it is not None for upcoming if statements
+        matrix_emp = matrix_emp[indices_roll]
+        matrix = matrix[indices_roll]
 
     if matrix_ref is not None:
         ref_lib = matrix_ref

@@ -14,6 +14,75 @@ from ..psfsub import pca_annulus, pca_annular, nmf_annular, pca
 from ..preproc import cube_crop_frames, frame_crop
 
 
+import numpy as np
+import math
+from scipy.ndimage import map_coordinates
+
+
+def extract_fluxes(image, x, y, fwhm):
+    """
+    Extract Gaussian-weighted fluxes at polar coordinates.
+
+    Parameters
+    ----------
+    image : 2D ndarray
+        Image intensity.
+    r : ndarray
+        Radial coordinates of points.
+    theta : ndarray
+        Angular coordinates of points (radians).
+    center : tuple
+        (x_center, y_center) of polar coordinate system.
+    fwhm : float
+        Full width at half maximum of Gaussian aperture (pixels).
+
+    Returns
+    -------
+    fluxes : ndarray
+        Flux at each (r, theta) location.
+    """
+
+    sigma = fwhm / (2*np.sqrt(2*np.log(2)))
+
+    # Radius of extraction window
+    radius = int(np.ceil(3*sigma))
+
+    fluxes = []
+
+    for xi, yi in zip(x, y):
+
+        # Local pixel grid
+        yy, xx = np.mgrid[
+            -radius:radius+1,
+            -radius:radius+1
+        ]
+
+        # Coordinates in image
+        coords_x = xi + xx
+        coords_y = yi + yy
+
+        # Interpolate image at subpixel locations
+        patch = map_coordinates(
+            image,
+            [coords_y, coords_x],
+            order=1,
+            mode='nearest'
+        )
+
+        # Gaussian aperture
+        weight = np.exp(
+            -(xx**2 + yy**2)/(2*sigma**2)
+        )
+
+        # Normalize weights
+        weight /= np.sum(weight)
+
+        # Weighted flux
+        fluxes.append(np.sum(patch * weight))
+
+    return np.array(fluxes)
+
+
 def chisquare(
     modelParameters,
     cube,
@@ -40,6 +109,8 @@ def chisquare(
     weights=None,
     force_rPA=False,
     ndet=None,
+    coord=None,
+    dist_factor=100,
     debug=False,
     plot=False
 ):
@@ -176,6 +247,7 @@ def chisquare(
         The reduced chi squared.
 
     """
+
     if cube.ndim == 3:
         if force_rPA:
             r, theta = initialState
@@ -198,6 +270,7 @@ def chisquare(
             except TypeError:
                 msg = "modelParameters must be a tuple, {} was given"
                 print(msg.format(type(modelParameters)))
+
 
     # set imlib for rotation and shift
     if imlib == "opencv":
@@ -242,7 +315,7 @@ def chisquare(
     )
 
     # Perform PCA and extract the zone of interest
-    full_output = (debug and collapse) or (fmerit == "hessian")
+    full_output = (debug and collapse) or (fmerit == "hessian") or (fmerit == "fluxprofile")
 
     res = get_values_optimize(
         cube_negfc,
@@ -317,6 +390,28 @@ def chisquare(
                 for j in range(ndet):
                     dets[i, j] = np.linalg.det(H[:, :, 2+i, 2+j])
             chi = np.sum(np.abs(dets))
+        elif fmerit == "fluxprofile":
+            
+            x0, y0 = int(frpca.shape[-1])//2, int(frpca.shape[-1])//2
+
+            # Convert polar coordinates to Cartesian
+            coordt = np.deg2rad(coord[1])
+            x = x0 + coord[0] * np.cos(coordt)
+            y = y0 + coord[0] * np.sin(coordt)
+            
+            fluxes = extract_fluxes(frpca, x, y, fwhm)
+            center = int(frpca.shape[-1])//2
+            thetaR = np.deg2rad(theta)
+            thisx = center + r * np.cos(thetaR)
+            thisy = center + r * np.sin(thetaR)
+            
+
+            distances = np.sqrt((x-thisx)**2 + (y - thisy)**2)
+            selected = np.where(distances < fwhm * 0.75)
+
+            distance = np.min(distances)        
+            
+            chi = np.std(fluxes[selected]) + dist_factor * distance**2
         else:
             raise RuntimeError("fmerit choice not recognized.")
     else:

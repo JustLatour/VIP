@@ -1001,7 +1001,7 @@ def _adi_rdi_pca(
                     residuals_cube = np.zeros_like(cube)
                     if full_output:
                         recon = np.zeros_like(cube)
-                        V = []
+                        pcs = []
                     for r in range(nbr_rolls):
                         results = _project_subtract(
                             cube, cube_ref, ncomp, scaling, mask_center_px,
@@ -1013,7 +1013,7 @@ def _adi_rdi_pca(
                         )
                         
                         if full_output:
-                            V.append(reshape_matrix(results[2], y, x))
+                            pcs.append(reshape_matrix(results[2], y, x))
                             recon[indices[r]] = reshape_matrix(results[1], y, x)
                             residuals_cube[indices[r]] = reshape_matrix(results[0], y, x)
                         else:
@@ -1192,8 +1192,12 @@ def _adi_rdi_pca(
                 
                 for r in range(nbr_rolls):
                     indices.append(np.where(angle_list == pa_values[r])[0])
-                    cube_ref = cube[~indices[-1]].copy()
-                    ref_lib = prepare_matrix(cube_ref, scaling, mask_center_px,
+
+                    if cube_ref is None:
+                        ref_lib = cube[~indices[-1]].copy()
+                    else:
+                        ref_lib = np.concatenate((cube[~indices[-1]].copy(), cube_ref), axis = 0)
+                    ref_lib = prepare_matrix(ref_lib, scaling, mask_center_px,
                                                  verbose=False)
                     V = svd_wrapper(ref_lib, svd_mode, pcmax, verbose)
                     
@@ -2058,10 +2062,16 @@ def _project_subtract(
                                             mode="fullfr", verbose=verbose)
                 
         if indices_roll is not None:
-            matrix_ref = matrix_emp[~indices_roll].copy()
-            cube_ref = 1 #just so that it is not None for upcoming if statements
+            if cube_ref is None:
+                matrix_ref = matrix_emp[~indices_roll].copy()
+                cube_ref = 1 #just so that it is not None for upcoming if statements
+            else:
+                matrix_ref = np.concatenate((matrix_emp[~indices_roll].copy(), matrix_ref), axis = 0)
+                
             matrix_emp = matrix_emp[indices_roll]
             matrix = matrix[indices_roll]
+            
+                
             
 
         # check whether indices are well defined (i.e. not empty)

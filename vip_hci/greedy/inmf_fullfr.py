@@ -36,6 +36,7 @@ class INMF_Params(NMF_Params):
     smooth_ker: Union[float, List] = 1.
     rtol: float = 1e-2
     atol: float = 1e-2
+    thr_mode: str = 'STIM'
     continue_without_smooth_after_conv: bool = False
 
 
@@ -375,15 +376,15 @@ def inmf(*all_args: List, **all_kwargs: dict):
         if algo_params.mode == 'Pairet18':
             algo_params.nit = ncomp_tmp
             final_ncomp = list(range(1, ncomp_tmp+1, algo_params.ncomp_step))
-            algo_params.thr = 0
+            #algo_params.thr = 0
         elif algo_params.mode in ['Pairet21', 'Christiaens21']:
             final_ncomp = []
             for npc in range(1, ncomp_tmp+1, algo_params.ncomp_step):
                 for ii in range(algo_params.nit):
                     final_ncomp.append(npc)
             algo_params.nit = len(final_ncomp)
-            if algo_params.mode == 'Pairet21':
-                algo_params.thr = 0
+            #if algo_params.mode == 'Pairet21':
+            #    algo_params.thr = 0
     else:
         final_ncomp = [ncomp_tmp]*algo_params.nit
 
@@ -401,7 +402,7 @@ def inmf(*all_args: List, **all_kwargs: dict):
         cube_ref_tmp = None
 
     # 2. Get a first disc estimate, using PCA
-    cube_nn = nmf_params.cube.copy()  # to avoid a bug
+    cube_nn = nmf_params['cube'].copy()  # to avoid a bug
     cube_nn[np.where(cube_nn < 0)] = 0  # replace all negative values
     nmf_params['cube'] = cube_nn
     nmf_params['cube_ref'] = ref_cube
@@ -494,8 +495,8 @@ def inmf(*all_args: List, **all_kwargs: dict):
 
         res = nmf(**nmf_params, **rot_options)
 
-        frame = res[0]
-        residuals_cube = res[-2]
+        frame = res[-1]
+        residuals_cube = res[-3]
         it_cube[it] = frame.copy()
 
         # smoothing and manual derotation if requested
@@ -514,8 +515,8 @@ def inmf(*all_args: List, **all_kwargs: dict):
         nmf_params['cube_ref'] = cube_ref_tmp
         nmf_params['cube_sig'] = None
         res_nd = nmf(**nmf_params, **rot_options)
-        residuals_cube_nd = res_nd[-2]
-        frame_nd = res_nd[0]
+        residuals_cube_nd = res_nd[-3]
+        frame_nd = res_nd[-1]
 
         if algo_params.thr_mode == 'STIM':
             sig_mask, nstim = _find_significant_signals(residuals_cube_nd,

@@ -308,7 +308,7 @@ def make_stim2D_threshold(inv_stim, fwhm = 4, width = 1, mask = None):
 
 
 def normalized_stim_pro(res_, res, derot = None, conv = True, fwhm = 4, 
-                        width = 1.5, mask= None, full_output = False):
+                        width = 1.5, mask= None, full_output = False, stim_done = False):
     
     """
     res_ is the derotated residuals.
@@ -329,12 +329,17 @@ def normalized_stim_pro(res_, res, derot = None, conv = True, fwhm = 4,
     if derot is not None:
         res = cube_derotate(res, -derot, imlib = 'opencv', interpolation = 'lanczos4')
     
-    if mask is None:
-        mask = np.ones_like(res[0])
         
-        
-    stim = stim_map(res_)
-    inv = stim_map(res)
+    if stim_done:
+        stim = res_
+        inv = res
+        if mask is None:
+            mask = np.ones_like(res)
+    else:
+        stim = stim_map(res_)
+        inv = stim_map(res)
+        if mask is None:
+            mask = np.ones_like(res[0])
         
     if conv:
         invC = masked_gaussian_convolution(inv, mask, fwhm)
