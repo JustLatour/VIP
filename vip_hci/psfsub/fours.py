@@ -831,7 +831,14 @@ def multi_cube_4S(cube, angle_list, inner_radius, asize=4, fwhm = 4, psf_templat
         
         yy,xx = get_annulus_segments(big_cube[0][0], inner_radius, asize, nsegm = 1, mode = 'ind')[0]
     else:
-        yy,xx = np.meshgrid(np.arange(0,y), np.arange(0,y))
+        new_size = np.min(y)
+        for c in range(nch):
+            if y[c] > new_size:
+                big_cube.append(cube_crop_frames(cube[c], new_size, verbose = False))
+                cropped = True
+            else:
+                big_cube.append(cube[c])
+        yy,xx = np.meshgrid(np.arange(0,new_size), np.arange(0,new_size))
         yy = yy.T.flatten()
         xx = xx.T.flatten()
         
