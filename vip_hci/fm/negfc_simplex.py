@@ -190,7 +190,7 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
                        f_range=np.geomspace(1e-1, 1e4, 30), transmission=None,
                        radial_gradient=False,
                        mu_sigma=None, weights=None, ndet=None, verbose=True,
-                       debug=False):
+                       debug=False, isarray=True):
 
         chi2r = []
         if verbose:
@@ -198,7 +198,7 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
 
         counter = 0
         for j, f_guess in enumerate(f_range):
-            if cube.ndim == 3:
+            if not isarray or cube.ndim == 3:
                 params = (r0, theta0, f_guess)
             elif ch is not None and cube.ndim == 4:
                 params = [r0, theta0]
@@ -224,6 +224,11 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
 
         return chi2r
 
+    if isinstance(cube, list):
+        isarray = False
+    else:
+        isarray = True
+        
     xy = planet-center
     r0 = np.sqrt(xy[0]**2 + xy[1]**2)
     theta0 = np.mod(np.arctan2(xy[1], xy[0]) / np.pi*180, 360)
@@ -234,7 +239,7 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
         n = 30
         f_range = np.geomspace(1e-1, 1e4, n)
 
-    if cube.ndim == 3:
+    if not isarray or cube.ndim == 3:
         chi2r = _grid_search_f(r0, theta0, None, cube, angs, psfn, fwhm,
                                annulus_width, aperture_radius, ncomp,
                                cube_ref=cube_ref, svd_mode=svd_mode,
@@ -245,7 +250,7 @@ def firstguess_from_coord(planet, center, cube, angs, psfn, fwhm, annulus_width,
                                transmission=transmission, 
                                radial_gradient = radial_gradient, mu_sigma=mu_sigma,
                                weights=weights, ndet=ndet, verbose=verbose,
-                               debug=debug)
+                               debug=debug, isarray=isarray)
         chi2r = np.array(chi2r)
         f0 = f_range[chi2r.argmin()]
 
@@ -343,7 +348,7 @@ def firstguess_simplex(p, cube, angs, psfn, ncomp, fwhm, annulus_width,
                        radial_gradient = False, mu_sigma=(0, 1),
                        weights=None, force_rPA=False, ndet=None, coord = None, 
                        dist_factor=100, options=None,
-                       verbose=False, method = 'Nelder-Mead', **kwargs):
+                       verbose=False, method = 'Nelder-Mead', isarray=True, **kwargs):
     """Determine the position of a companion using the negative fake companion\
     technique and a standard minimization algorithm (Default=Nelder-Mead).
 
@@ -490,11 +495,18 @@ def firstguess_simplex(p, cube, angs, psfn, ncomp, fwhm, annulus_width,
     else:
         p_t = p
         
-    bounds = [
+    if isarray:
+        bounds = [
             (0, cube.shape[-1] / 2 -1),
             (0, 360),
             (0, np.max(cube))
-            ]    
+            ]  
+    else:
+        bounds = [
+            (0, cube[0].shape[-1] / 2 -1),
+            (0, 360),
+            (0, np.max(cube[0]))
+        ] 
 
         
     solu = minimize(chisquare, p_t, args=(cube, angs, psfn, fwhm, annulus_width,
@@ -685,8 +697,12 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
     Polar angle is not the conventional NORTH-TO-EAST P.A., but the
     counter-clockwise angle measured from the positive x axis.
     """
-    if cube.ndim != 3 and cube.ndim != 4:
+    if isinstance(cube, list):
+        isarray = False
+    elif cube.ndim != 3 and cube.ndim != 4:
         raise TypeError("Input cube is not 3D nor 4D")
+    else:
+        isarray = True
 
     if verbose:
         start_time = time_ini()
@@ -697,7 +713,7 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
 
     r_0 = np.zeros(n_planet)
     theta_0 = np.zeros_like(r_0)
-    if cube.ndim == 3:
+    if not isarray or cube.ndim == 3:
         f_0 = np.zeros_like(r_0)
     else:
         if psfn.ndim < 3:
@@ -796,14 +812,15 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                                      mu_sigma=mu_sigma, weights=weights,
                                      force_rPA=force_rPA, ndet=ndet, coord=coord,
                                      dist_factor=dist_factor,
-                                     options=simplex_options, method = method, verbose=False)
+                                     options=simplex_options, method = method, 
+                                     isarray = isarray,verbose=False)
             if force_rPA:
                 r_0[i_planet], theta_0[i_planet] = (r_pre, theta_pre)
                 f_0[i_planet] = res.x[:]
             else:
                 r_0[i_planet] = res.x[0]
                 theta_0[i_planet] = res.x[1]
-                if cube.ndim == 3:
+                if not isarray or cube.ndim == 3:
                     f_0[i_planet] = res.x[2]
                 else:
                     f_0[i_planet] = res.x[2:]
@@ -819,17 +836,20 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                 print(msg4bis.format(i_planet))
             r_0[i_planet] = r_pre
             theta_0[i_planet] = theta_pre
-            if cube.ndim == 3:
+            if cube.ndim == 3 or not isarray:
                 f_0[i_planet] = f_pre[0]
             else:
                 f_0[i_planet] = f_pre
 
         if verbose:
-            centy, centx = frame_center(cube[0])
+            if isarray:
+                centy, centx = frame_center(cube[0])
+            else:
+                centy, centx = frame_center(cube[0][0])
             posy = r_0 * np.sin(np.deg2rad(theta_0[i_planet])) + centy
             posx = r_0 * np.cos(np.deg2rad(theta_0[i_planet])) + centx
             msg6 = 'Planet {} simplex result: (r, theta, '.format(i_planet)
-            if cube.ndim == 3:
+            if not isarray or cube.ndim == 3:
                 msg6 += 'f)=({:.3f}, {:.3f}, {:.3f})'.format(r_0[i_planet],
                                                              theta_0[i_planet],
                                                              f_0[i_planet])

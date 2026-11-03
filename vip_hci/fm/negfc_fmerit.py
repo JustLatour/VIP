@@ -112,7 +112,7 @@ def chisquare(
     coord=None,
     dist_factor=100,
     debug=False,
-    plot=False
+    plot=False,
 ):
     r"""
     Calculate the reduced :math:`\chi^2`:
@@ -247,8 +247,12 @@ def chisquare(
         The reduced chi squared.
 
     """
+    if isinstance(cube, list):
+        isarray = False
+    else:
+        isarray = True
 
-    if cube.ndim == 3:
+    if not isarray or cube.ndim == 3:
         if force_rPA:
             r, theta = initialState
             flux_tmp = modelParameters[0]

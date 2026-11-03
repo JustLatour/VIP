@@ -193,14 +193,21 @@ def cube_inject_companions(array, psf_template, angle_list, flevel, rad_dists,
 
         return array_out, positions, psf_trans
 
-    check_array(array, dim=(3, 4), msg="array")
-    check_array(psf_template, dim=(2, 3), msg="psf_template")
-
-    nframes = array.shape[-3]
+    if not isinstance(array, list):
+        check_array(array, dim=(3, 4), msg="array")
+        check_array(psf_template, dim=(2, 3), msg="psf_template")
+        isarray = True
+        nframes = array.shape[-3]
+    else:
+        isarray = False
+        nbr = len(array)
+        nframes = 0
+        for i in range(nbr):
+            nframes += array[i].shape[-1]
 
     pceny, pcenx = frame_center(psf_template)
 
-    if array.ndim == 4 and psf_template.ndim != 3:
+    if isarray and array.ndim == 4 and psf_template.ndim != 3:
         raise ValueError('`psf_template` must be a 3d array')
 
     if verbose and not np.isscalar(plsc):
@@ -225,9 +232,14 @@ def cube_inject_companions(array, psf_template, angle_list, flevel, rad_dists,
 
     rad_dists = np.asarray(rad_dists).reshape(-1)  # forces ndim=1
 
-    if not rad_dists[-1] < array.shape[-1] / 2:
+    if isarray:
+        max_rad = array.shape[-1] / 2
+    else:
+        max_rad = array[0].shape[-1] / 2
+    if not rad_dists[-1] < max_rad:
         raise ValueError('rad_dists last location is at the border (or '
                          'outside) of the field')
+        
 
     if transmission is not None:
         t_nz = transmission.shape[0]
@@ -237,7 +249,7 @@ def cube_inject_companions(array, psf_template, angle_list, flevel, rad_dists,
             msg = "transmission dimensions should be (2,N) or (n_wave+1, N)"
             raise ValueError(msg)
         # if transmission doesn't have right format for interpolation, adapt it
-        diag = np.sqrt(2)*array.shape[-1]
+        diag = np.sqrt(2)*max_rad*2
         if transmission[0, 0] != 0 or transmission[0, -1] < diag:
             trans_rad_list = transmission[0].tolist()
             for j in range(t_nz-1):
@@ -248,7 +260,7 @@ def cube_inject_companions(array, psf_template, angle_list, flevel, rad_dists,
                         trans_rad_list = [0]+trans_rad_list
                     trans_list = [0]+trans_list
                 # last point should be max possible distance between fc and star
-                if transmission[0, -1] < np.sqrt(2)*array.shape[-1]/2:
+                if transmission[0, -1] < np.sqrt(2)*max_rad:
                     if j == 0:
                         trans_rad_list = trans_rad_list+[diag]
                     trans_list = trans_list+[1]
@@ -259,7 +271,20 @@ def cube_inject_companions(array, psf_template, angle_list, flevel, rad_dists,
             transmission = ntransmission.copy()
 
     # ADI case
-    if array.ndim == 3:
+    if not isarray:
+        array_out = []
+        positions = []
+        psf_trans = []
+        nbr = len(array)
+        for i in range(nbr):
+            res = _cube_inject_adi(array[i], psf_template, angle_list[i], flevel, plsc,
+                                   rad_dists, n_branches, theta, imlib,
+                                   interpolation, transmission, radial_gradient,
+                                   verbose)
+            array_out.append(res[0])
+            positions.append(res[1])
+            psf_trans.append(res[2])
+    elif array.ndim == 3:
         res = _cube_inject_adi(array, psf_template, angle_list, flevel, plsc,
                                rad_dists, n_branches, theta, imlib,
                                interpolation, transmission, radial_gradient,
