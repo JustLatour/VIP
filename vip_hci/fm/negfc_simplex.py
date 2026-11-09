@@ -348,7 +348,7 @@ def firstguess_simplex(p, cube, angs, psfn, ncomp, fwhm, annulus_width,
                        radial_gradient = False, mu_sigma=(0, 1),
                        weights=None, force_rPA=False, ndet=None, coord = None, 
                        dist_factor=100, options=None,
-                       verbose=False, method = 'Nelder-Mead', isarray=True, **kwargs):
+                       verbose=False, method = 'Nelder-Mead', **kwargs):
     """Determine the position of a companion using the negative fake companion\
     technique and a standard minimization algorithm (Default=Nelder-Mead).
 
@@ -494,6 +494,13 @@ def firstguess_simplex(p, cube, angs, psfn, ncomp, fwhm, annulus_width,
         p_ini = (p[0], p[1])
     else:
         p_t = p
+        
+    if isinstance(cube, list):
+        isarray = False
+    elif cube.ndim != 3 and cube.ndim != 4:
+        raise TypeError("Input cube is not 3D nor 4D")
+    else:
+        isarray = True
         
     if isarray:
         bounds = [
@@ -813,7 +820,7 @@ def firstguess(cube, angs, psfn, planets_xy_coord, ncomp=1, fwhm=4,
                                      force_rPA=force_rPA, ndet=ndet, coord=coord,
                                      dist_factor=dist_factor,
                                      options=simplex_options, method = method, 
-                                     isarray = isarray,verbose=False)
+                                     verbose=False)
             if force_rPA:
                 r_0[i_planet], theta_0[i_planet] = (r_pre, theta_pre)
                 f_0[i_planet] = res.x[:]
