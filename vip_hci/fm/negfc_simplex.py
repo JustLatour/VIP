@@ -882,12 +882,20 @@ def astro_photo_metry_uncertainty(cube, angle_list, planets_rad, flux, psfn,
                interpolation='lanczos4', collapse='median', algo=pca_annulus,
                delta_rot=1, f_range=None, transmission=None, maxiter = 100,
                wedge=None, weights=None, ndet=None, coord=None, 
-               dist_factor=100, force_rPA=False,
+               dist_factor=100, force_rPA=False, radial_gradient = True,
                algo_options={}, simplex=True, simplex_options=None, plot=False,
                verbose=True, save=False, counter_limit=4, method = 'Nelder-Mead'):
     
     
-    size = cube.shape[-1]
+    
+    if isinstance(cube, list):
+        isarray = False
+        size = cube[0].shape[-1]
+    elif cube.ndim != 3 and cube.ndim != 4:
+        raise TypeError("Input cube is not 3D nor 4D")
+    else:
+        isarray = True
+        size = cube.shape[-1]
     center = size // 2
     
     rads = np.zeros(n_fc)
@@ -899,8 +907,15 @@ def astro_photo_metry_uncertainty(cube, angle_list, planets_rad, flux, psfn,
                            'maxfev': 2000}
         
     if subtract:
-        cube_emp = cube_planet_free((planets_rad, init_theta, flux), cube, angle_list, 
+        if isarray:
+            cube_emp = cube_planet_free((planets_rad, init_theta, flux), cube, angle_list, 
                                     psfn, imlib=imlib, interpolation=interpolation)
+        else:
+            cube_emp = []
+            for i in range(len(cube)):
+                cube_emp.append(cube_planet_free((planets_rad, init_theta, flux), 
+                                    cube[i], angle_list[i], psfn, imlib = 'opencv',   
+                                    transmission = transmission, radial_gradient = radial_gradient))
     else:
         cube_emp = cube
     
@@ -913,17 +928,32 @@ def astro_photo_metry_uncertainty(cube, angle_list, planets_rad, flux, psfn,
         this_x = center + planets_rad * np.cos(radian)
         this_y = center + planets_rad * np.sin(radian)
         
-        cube_fc = cube_inject_companions(
-            cube_emp,
-            psfn,
-            angle_list,
-            flevel=flux,
-            plsc=0.1,
-            rad_dists=planets_rad,
-            theta=b / n_fc * 360,
-            n_branches=1,
-            verbose=False,
-        )
+        if isarray:
+            cube_fc = cube_inject_companions(
+                cube_emp,
+                psfn,
+                angle_list,
+                flevel=flux,
+                plsc=0.1,
+                rad_dists=planets_rad,
+                theta=b / n_fc * 360,
+                n_branches=1,
+                verbose=False,
+                )
+        else:
+            cube_fc = []
+            for i in range(len(cube)):
+                cube_fc.append(cube_inject_companions(
+                    cube_emp[i],
+                    psfn,
+                    angle_list[i],
+                    flevel=flux,
+                    plsc=0.1,
+                    rad_dists=planets_rad,
+                    theta=b / n_fc * 360,
+                    n_branches=1,
+                    verbose=False,
+                    ))
         
         res_init = firstguess_from_coord(np.array([this_x, this_y]),
                                          np.array([center, center]), cube_fc, angle_list,
@@ -958,6 +988,7 @@ def astro_photo_metry_uncertainty(cube, angle_list, planets_rad, flux, psfn,
                                  algo_options=algo_options,
                                  transmission=transmission,
                                  mu_sigma=None, weights=weights,
+                                 radial_gradient=radial_gradient,
                                  force_rPA=force_rPA, ndet=ndet, coord=coord,
                                  dist_factor=dist_factor,
                                  options=simplex_options, method = method, verbose=False)
