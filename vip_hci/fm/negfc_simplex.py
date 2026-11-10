@@ -1008,7 +1008,7 @@ def astro_photo_metry_uncertainty(cube, angle_list, planets_rad, flux, psfn,
         else:
             rads[b] = res.x[0]
             thetas[b] = res.x[1]
-            if cube.ndim == 3:
+            if isarray and cube.ndim == 3:
                 fluxes[b] = res.x[2]
             else:
                 fluxes[b] = res.x[2:]
